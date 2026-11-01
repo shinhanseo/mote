@@ -2,9 +2,11 @@ import AppKit
 import SwiftUI
 import UserNotifications
 import SQLite3
+import ServiceManagement
+import Darwin
 
 struct Job: Identifiable, Equatable {
-    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil
+    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil;var waitSince:Date? = nil
     var label: String { switch status {case "unread": return "답변 도착 · 미확인"; case "approval": return "승인 대기"; case "answer": return "답변 대기"; case "inProgress": return "작업 중"; case "completed": return "완료"; case "failed": return "오류"; case "interrupted": return "중단됨"; default: return "확인 필요"} }
     var symbol: String { switch status {case "unread": return "envelope.badge"; case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
 }
@@ -26,21 +28,23 @@ struct LocalReader {
         guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw NSError(domain:"Codex 기록을 찾지 못했어요",code:4) }
         let columns=try query(home+"/"+state,"PRAGMA table_info(threads)").map{$0[1]}
         let titleColumn=columns.contains("name") ? "COALESCE(NULLIF(TRIM(name),''),'')" : "''"
-        let threads = try query(home+"/"+state,"SELECT id, \(titleColumn), cwd FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC LIMIT 20")
+        let threads = try query(home+"/"+state,"SELECT id, \(titleColumn), cwd FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC")
         let turns = try query(home+"/thread_history_1.sqlite", "SELECT t.thread_id,t.turn_id,t.status,COALESCE(t.started_at,0) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
         // Desktop read receipts are authoritative for the published turn. Stream snapshots
         // can retain hasUnreadTurn after the desktop handles a separate read-state event.
         let receiptRows=(try? query(home+"/"+state,"SELECT thread_id, first_unread_turn IS NOT NULL, COALESCE(last_published_turn,'') FROM thread_read_receipts")) ?? []
         let receipts=Dictionary(receiptRows.map{($0[0],$0)},uniquingKeysWith:{_,b in b})
         let lookup = Dictionary(turns.map { ($0[0],$0) }, uniquingKeysWith: { a,b in b })
-        return threads.map { row in
+        return threads.enumerated().compactMap { index,row in
             let t = lookup[row[0]]; var status = t?[2] ?? "unknown"
             // In-progress rows can survive a terminated Codex process. Never invent completion.
             if status == "inProgress", let stamp = Double(t?[3] ?? "0") {
                 let seconds = stamp > 10_000_000_000 ? stamp/1000 : stamp
                 if Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
             }
-            return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipts[row[0]].flatMap{ receipt in receipt[2] == t?[1] ? receipt[1] == "1" : nil })
+            let receipt:Bool?=receipts[row[0]].flatMap{r in r[2] == t?[1] ? r[1] == "1" : nil}
+            guard index<20 || t?[2]=="inProgress" else{return nil}
+            return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipt)
         }
     }
 }
@@ -49,10 +53,30 @@ struct LocalReader {
     @Published var jobs=[Job](); @Published var error: String?; @Published var selected: String?; @Published var all=false
     @Published var notificationStatus="알림 권한 확인 중"; @Published var muted=false
     @Published var liveConnected=false
+    @Published var showSettings=false
+    @Published var pauseUntil:Date? = UserDefaults.standard.object(forKey:"pauseUntil") as? Date
+    @Published var completionAlerts=UserDefaults.standard.object(forKey:"completionAlerts") as? Bool ?? true {didSet{UserDefaults.standard.set(completionAlerts,forKey:"completionAlerts")}}
+    @Published var attentionAlerts=UserDefaults.standard.object(forKey:"attentionAlerts") as? Bool ?? true {didSet{UserDefaults.standard.set(attentionAlerts,forKey:"attentionAlerts")}}
+    @Published var errorAlerts=UserDefaults.standard.object(forKey:"errorAlerts") as? Bool ?? true {didSet{UserDefaults.standard.set(errorAlerts,forKey:"errorAlerts")}}
+    @Published var attentionSound=UserDefaults.standard.object(forKey:"attentionSound") as? Bool ?? true {didSet{UserDefaults.standard.set(attentionSound,forKey:"attentionSound")}}
+    @Published var completionSound=UserDefaults.standard.object(forKey:"completionSound") as? Bool ?? false {didSet{UserDefaults.standard.set(completionSound,forKey:"completionSound")}}
+    @Published var loginEnabled=SMAppService.mainApp.status == .enabled
+    @Published var settingsError:String?
+    var ledger=NotificationLedger(sent:UserDefaults.standard.dictionary(forKey:"notificationLedger") as? [String:Double] ?? [:])
+    var waitTimes=UserDefaults.standard.dictionary(forKey:"waitTimes") as? [String:Date] ?? [:]
+    var dismissedErrors=UserDefaults.standard.stringArray(forKey:"dismissedErrors") ?? []
+    var paused:Bool {pauseUntil.map{$0>Date()} ?? false}
+    var attentionJobs:[Job] {jobs.filter{["approval","answer","unread","failed"].contains($0.status)}}
+    var runningJobs:[Job] {jobs.filter{$0.status=="inProgress"}}
+    func pause(){pauseUntil=Date().addingTimeInterval(1800);UserDefaults.standard.set(pauseUntil,forKey:"pauseUntil")}
+    func resume(){pauseUntil=nil;UserDefaults.standard.removeObject(forKey:"pauseUntil")}
+    func setLogin(_ enabled:Bool){do{if enabled{try SMAppService.mainApp.register()}else{try SMAppService.mainApp.unregister()};loginEnabled=SMAppService.mainApp.status == .enabled;settingsError=SMAppService.mainApp.status == .requiresApproval ? "시스템 설정의 로그인 항목에서 허용해 주세요.":nil}catch{settingsError="자동 실행 설정 실패: \(error.localizedDescription)";loginEnabled=SMAppService.mainApp.status == .enabled}}
+    func dismissError(_ job:Job){dismissedErrors.append(job.id+job.turn);dismissedErrors=Array(dismissedErrors.suffix(500));UserDefaults.standard.set(dismissedErrors,forKey:"dismissedErrors");reconcile();onUpdate?()}
+
     let live=LiveObserver();var rawJobs=[Job]();var liveStates=[String:LiveState]();var waitSignatures=[String:String]()
     var waiting:Int {jobs.filter{["approval","answer"].contains($0.status)}.count}
     var unread:Int {jobs.filter{$0.status=="unread"}.count}
-    var fairyStatus:String {waiting>0 ? (jobs.first{["approval","answer"].contains($0.status)}?.status ?? "answer") : unread>0 ? "unread" : active>0 ? "inProgress":"idle"}
+    var fairyStatus:String {waiting>0 ? (jobs.first{["approval","answer"].contains($0.status)}?.status ?? "answer") : unread>0 ? "unread" : jobs.contains{$0.status=="failed"} ? "failed" : active>0 ? "inProgress":"idle"}
     var baseline=false; var previous=[String:Job](); var timer: Timer?; var reading=false
     var onUpdate: (() -> Void)?
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
@@ -68,9 +92,18 @@ struct LocalReader {
             else {UNUserNotificationCenter.current().requestAuthorization(options:[.alert,.sound]) { _,_ in Task { @MainActor in self.updatePermission() } }}
         }
     }
-    func notify(_ job:Job) {
-        guard !muted else {return}; let content=UNMutableNotificationContent();content.title=["approval":"모트 · 승인이 필요해요","answer":"모트 · 답변을 기다리고 있어요","failed":"모트 · 작업에 문제가 생겼어요"][job.status] ?? "모트 · 작업이 끝났어요";content.body=String(job.title.prefix(100));content.sound = .default; content.userInfo=["threadID":job.id]
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:job.id+job.turn+job.status,content:content,trigger:nil)) { error in if let error {fputs("Mote notification: \(error.localizedDescription)\n",stderr)} }
+    func notify(_ job:Job,requests:[String]=[],test:Bool=false) {
+        let attention=["approval","answer"].contains(job.status)
+        guard test || (!muted && !paused && (attention ? attentionAlerts : job.status=="failed" ? errorAlerts:completionAlerts)) else{return}
+        let key=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)
+        guard test || ledger.claim(key) else{return}
+        if !test{UserDefaults.standard.set(ledger.sent,forKey:"notificationLedger")}
+        let content=UNMutableNotificationContent()
+        content.title=test ? "모트 · 테스트 알림" : ["approval":"모트 · 승인이 필요해요","answer":"모트 · 답변을 기다리고 있어요","failed":"모트 · 작업에 문제가 생겼어요"][job.status] ?? "모트 · 작업이 끝났어요"
+        content.body=String(job.title.prefix(100));if test || (attention ? attentionSound:completionSound){content.sound = .default};content.userInfo=["threadID":job.id]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:key,content:content,trigger:nil)){error in
+            if error != nil && !test {Task{@MainActor in self.ledger=NotificationLedger(sent:self.ledger.sent.filter{$0.key != key});UserDefaults.standard.set(self.ledger.sent,forKey:"notificationLedger")}}
+        }
     }
     func refresh() {
         guard !reading else{return}; reading=true
@@ -79,46 +112,65 @@ struct LocalReader {
     func apply(_ result:Result<[Job],Error>) {
         reading=false
         switch result {case .success(let found):
-            if baseline { for j in found { if let old=previous[j.id], j.turn == old.turn, old.status == "inProgress", ["completed","failed"].contains(j.status) { notify(j) } } }
+            if baseline { for j in found { if let old=previous[j.id], ["completed","failed"].contains(j.status), (j.turn != old.turn || old.status == "inProgress") { notify(j) } } }
             previous=Dictionary(uniqueKeysWithValues:found.map{($0.id,$0)});rawJobs=found;live.observe(found.map(\.id));reconcile();error=nil;baseline=true
         case .failure(let e): error=e.localizedDescription }
         onUpdate?()
     }
     func receive(_ id:String,_ state:LiveState) {
+        let old=liveStates[id]
+        if let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
+            latest.id != prior.id || latest.status != prior.status,let raw=rawJobs.first(where:{$0.id==id}) {
+            var finished=raw;finished.turn=latest.id;finished.status=latest.status;notify(finished)
+            refresh()
+        }
         if liveStates[id]?.waiting != state.waiting {fputs("Mote waiting state: \(state.waiting ?? "none")\n",stderr)}
         liveStates[id]=state
         if let kind=state.waiting,let raw=rawJobs.first(where:{$0.id==id}) {
-            let signature=raw.turn+kind+state.requestIDs.joined(separator:":")
-            if waitSignatures[id] != signature {var job=raw;job.status=kind;notify(job);selected=id;waitSignatures[id]=signature}
+            let signature=(state.latestTurn?.id ?? raw.turn)+kind+state.requestIDs.sorted().joined(separator:":")
+            if waitSignatures[id] != signature {var job=raw;job.turn=state.latestTurn?.id ?? raw.turn;job.status=kind;notify(job,requests:state.requestIDs);selected=id;waitSignatures[id]=signature}
         }else{waitSignatures.removeValue(forKey:id)}
         reconcile();onUpdate?()
     }
     func reconcile(){
-        jobs=rawJobs.map { raw in var job=raw;if let kind=liveStates[raw.id]?.waiting {job.status=kind}else if raw.status=="completed",(raw.readReceipt ?? liveStates[raw.id]?.unread) == true {job.status="unread"};return job }.sorted { a,b in
-            let aw=["approval","answer"].contains(a.status),bw=["approval","answer"].contains(b.status)
-            if aw != bw{return aw};return a.status=="unread" && b.status != "unread"
-        }
+        jobs=rawJobs.map {raw in
+            var job=raw
+            if let liveState=liveStates[raw.id] {
+                if let kind=liveState.waiting {job.status=kind}
+                // A desktop-owned active thread is authoritative over old persisted inProgress rows.
+                else if liveState.runtime["type"] as? String == "active" {job.status="inProgress"}
+            }
+            if job.status=="completed",(raw.readReceipt ?? liveStates[raw.id]?.unread)==true{job.status="unread"}
+            if ["approval","answer"].contains(job.status){
+                let state=liveStates[raw.id]
+                let key=NotificationLedger.key(thread:raw.id,turn:state?.latestTurn?.id ?? raw.turn,kind:job.status,requests:state?.requestIDs ?? [])
+                if waitTimes[key]==nil{waitTimes[key]=Date()};job.waitSince=waitTimes[key]
+            }
+            if job.status=="failed",dismissedErrors.contains(job.id+job.turn){job.status="reviewedError"}
+            return job
+        }.enumerated().sorted{a,b in
+            func rank(_ status:String)->Int{switch status{case "approval","answer":return 0;case "failed":return 1;case "unread":return 2;case "inProgress":return 3;default:return 4}}
+            let ar=rank(a.element.status),br=rank(b.element.status)
+            return ar==br ? a.offset<b.offset:ar<br
+        }.map(\.element)
+        if waitTimes.count>500 {waitTimes=Dictionary(uniqueKeysWithValues:waitTimes.sorted{$0.value>$1.value}.prefix(300).map{($0.key,$0.value)})}
+        UserDefaults.standard.set(waitTimes,forKey:"waitTimes")
     }
-    func open(_ id:String) { if let url=URL(string:"codex://threads/"+id) { NSWorkspace.shared.open(url) } }
+    func open(_ id:String) {
+        guard let url=URL(string:"codex://threads/"+id) else{return}
+        if !NSWorkspace.shared.open(url){error="Codex에서 대화를 열지 못했어요."}
+    }
+
 }
 
 struct Dust: View {
     var status:String
-    var working:Bool {status=="inProgress"}
-    var waiting:Bool {["approval","answer","unread"].contains(status)}
-    var body: some View {
-        TimelineView(.animation(minimumInterval:0.18,paused: !working && !waiting)) { context in
-            let phase=(working || waiting) ? sin(context.date.timeIntervalSince1970*(waiting ? 3:6)) : 0
-            Canvas { ctx,size in
-                let color=Color(nsColor:.labelColor); let center=CGPoint(x:size.width/2,y:size.height/2+phase*2);let radius=size.width*0.29
-                var silhouette=Path()
-                for i in 0..<20 {let angle=Double(i)*Double.pi/10;let p=CGPoint(x:center.x+cos(angle)*radius*0.9,y:center.y+sin(angle)*radius*0.83);silhouette.addEllipse(in:CGRect(x:p.x-7,y:p.y-7,width:14,height:14))}
-                silhouette.addEllipse(in:CGRect(x:center.x-radius,y:center.y-radius,width:radius*2,height:radius*1.9))
-                ctx.fill(silhouette,with:.color(color))
-                for dx in [-11.0,11.0] {ctx.fill(Path(ellipseIn:CGRect(x:center.x+dx-5,y:center.y-7,width:waiting ? 13:10,height:waiting ? 16:13)),with:.color(Color(nsColor:.windowBackgroundColor)));ctx.fill(Path(ellipseIn:CGRect(x:center.x+dx,y:center.y-3,width:3,height:5)),with:.color(color))}
-                var hand=Path();hand.move(to:CGPoint(x:center.x+radius-1,y:center.y));hand.addLine(to:CGPoint(x:center.x+radius+10,y:center.y+(waiting ? -32+phase*5:12+phase*3)));ctx.stroke(hand,with:.color(color),style:StrokeStyle(lineWidth:5,lineCap:.round))
-            }
-        }.accessibilityLabel(waiting ? "손을 들고 응답을 기다리는 먼지 요정" : working ? "작업 중인 먼지 요정" : "쉬는 먼지 요정")
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body:some View{
+        TimelineView(.animation(minimumInterval:0.2,paused:status=="idle" || reduceMotion)){context in
+            let frame=reduceMotion ? 0:Int(context.date.timeIntervalSince1970*5)%4
+            Image(nsImage:MenuFairy.image(state:status,frame:frame)).resizable().interpolation(.high).scaledToFit()
+        }.accessibilityLabel(["approval":"승인을 기다리는 요정","answer":"답변을 기다리는 요정","unread":"새 답변을 배달하는 요정","failed":"오류를 알리는 요정","inProgress":"작업 중인 요정"][status] ?? "쉬는 요정")
     }
 }
 struct Glass: NSViewRepresentable {
@@ -131,19 +183,58 @@ enum Palette {
     })
 }
 final class MotePanel: NSPanel { override var canBecomeKey:Bool { true }; override func cancelOperation(_ sender:Any?) { orderOut(nil) } }
-struct Panel: View {
+struct Panel:View {
     @ObservedObject var model:Monitor
-    var body: some View {
-        VStack(alignment:.leading,spacing:0) {
-            HStack {Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));Text(model.error != nil ? "연결 확인 필요" : model.liveConnected ? "● 실시간 감지":"로컬 기록 · 재연결 중").font(.system(size:11)).foregroundStyle(.secondary);Spacer();Button{model.muted.toggle()}label:{Image(systemName:model.muted ? "bell.slash":"bell")}.buttonStyle(.plain).help("알림 일시 중지")}.padding(.bottom,18)
-            HStack {VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.system(size:12)).foregroundStyle(.secondary);Text(model.unread>0 && model.waiting==0 ? "미확인 답변이\n\(model.unread)개 있어요." : model.waiting > 0 ? "\(model.waiting)개 작업이\n응답을 기다려요." : model.active > 0 ? "\(model.active)개 작업이\n진행 중이에요." : "지금은 쉬고 있어요.").font(.system(size:25,weight:.semibold)).tracking(-0.7).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:105,height:105)}.padding(.bottom,15)
-            if let error=model.error {Text(error).font(.callout).foregroundStyle(.orange).padding(.bottom,10)}
-            HStack {Button("최근 작업"){model.all=false}.tint(model.all ? .secondary:Palette.olive);Button("전체 \(model.jobs.count)"){model.all=true}.tint(model.all ? Palette.olive:.secondary);Spacer();Text("3초마다 확인").font(.system(size:11)).foregroundStyle(.secondary)}.buttonStyle(.borderless).padding(.bottom,12)
-            ScrollView {VStack(spacing:3){ForEach(Array(model.jobs.prefix(model.all ? 20:5))){job in Button {model.selected=job.id}label:{HStack(spacing:11){Image(systemName:job.symbol).frame(width:30,height:30).background(job.status == "failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.12),in:RoundedRectangle(cornerRadius:9));VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);Text("\(job.project) · \(job.label)").font(.system(size:11)).foregroundStyle(.secondary)};Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7).accessibilityLabel("미확인 답변")}}.padding(10).frame(maxWidth:.infinity,alignment:.leading).background(model.chosen?.id == job.id ? Color.primary.opacity(0.055):.clear,in:RoundedRectangle(cornerRadius:11))}.buttonStyle(.plain)}}}.frame(height:190)
-            if let job=model.chosen {Divider().padding(.vertical,15);Text(job.label).font(.system(size:12)).foregroundStyle(.secondary);Text(job.title).font(.system(size:17,weight:.semibold)).lineLimit(3).fixedSize(horizontal:false,vertical:true).padding(.top,5);Text(job.status == "unread" ? "답변이 도착했어요. Codex에서 읽으면 미확인 표시가 사라져요." : job.status == "approval" ? "Codex에서 요청한 내용을 확인하고 승인해 주세요." : job.status == "answer" ? "Codex에 답변하면 요정이 다시 작업 상태로 돌아가요." : model.liveConnected ? "승인과 질문 대기를 실시간으로 확인하고 있어요." : "실시간 연결을 기다리고 있어요. 기본 작업 상태는 계속 확인해요.").font(.system(size:12)).foregroundStyle(.secondary).padding(.top,8);Button {model.open(job.id)}label:{HStack {Text("Codex에서 작업 보기");Image(systemName:"arrow.up.right")}.frame(maxWidth:.infinity).padding(.vertical,7)}.buttonStyle(.borderedProminent).tint(Palette.olive).padding(.top,14)}
-            Divider().padding(.vertical,14)
-            HStack {Button(model.notificationStatus){model.requestNotifications()};Spacer();Button("테스트 알림"){model.notify(Job(id:"test",title:"모트 알림이 정상 작동해요",project:"",status:"completed",turn:UUID().uuidString))};Menu {Button("새로고침"){model.refresh()};Button("종료"){NSApp.terminate(nil)}}label:{Image(systemName:"ellipsis")}}.font(.system(size:11)).buttonStyle(.borderless)
+    var headline:String {
+        if model.waiting>0{return "\(model.waiting)개 작업이\n응답을 기다려요."}
+        if model.unread>0{return "미확인 답변이\n\(model.unread)개 있어요."}
+        if model.jobs.contains(where:{$0.status=="failed"}){return "확인이 필요한\n오류가 있어요."}
+        return model.active>0 ? "\(model.active)개 작업이\n진행 중이에요.":"지금은 쉬고 있어요."
+    }
+    var body:some View {
+        VStack(alignment:.leading,spacing:16){
+            HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));Text(model.liveConnected ? "● 실시간 감지":"재연결 중").font(.caption).foregroundStyle(.secondary);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel("설정")}
+            if model.showSettings{settings}else{
+                HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
+                HStack{Button("확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold);Button("전체 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular);Spacer()}.buttonStyle(.borderless)
+                ScrollView{VStack(alignment:.leading,spacing:4){
+                    if model.all{ForEach(model.jobs){row($0)}}else{
+                        if model.attentionJobs.isEmpty{Label("지금 확인할 작업은 없어요",systemImage:"checkmark.circle").foregroundStyle(.secondary).padding(.vertical,20)}
+                        ForEach(model.attentionJobs){row($0)}
+                        if !model.runningJobs.isEmpty{Text("진행 중 \(model.active)").font(.caption).foregroundStyle(.secondary).padding(.top,15);ForEach(model.runningJobs){row($0)}}
+                    }
+                }}.frame(height:min(310,CGFloat(max(1,model.all ? model.jobs.count:model.attentionJobs.count+model.runningJobs.count))*76+(model.runningJobs.isEmpty || model.all ? 0:35)))
+            }
+            if let error=model.error{Text(error).font(.caption).foregroundStyle(.orange)}
+            if let message=model.settingsError{Text(message).font(.caption).foregroundStyle(.secondary)}
+            Divider()
+            HStack{Button(model.notificationStatus){model.requestNotifications()};Spacer();Menu{Button("새로고침"){model.refresh()};Button(model.paused ? "알림 다시 켜기":"30분 동안 알림 쉬기"){if model.paused{model.resume()}else{model.pause()}};Button("테스트 알림"){model.notify(Job(id:"test",title:"모트 알림이 정상 작동해요",project:"",status:"completed",turn:UUID().uuidString),test:true)};Button("종료"){NSApp.terminate(nil)}}label:{Image(systemName:"ellipsis")}}.font(.caption).buttonStyle(.borderless)
+            if model.paused,let until=model.pauseUntil{HStack{Text("알림 쉬는 중 · \(until.formatted(date:.omitted,time:.shortened))까지");Spacer();Button("다시 켜기"){model.resume()}}.font(.caption).foregroundStyle(.secondary)}
         }.padding(23).frame(width:440).tint(Palette.olive)
+    }
+    func row(_ job:Job)->some View {
+        Button{model.open(job.id)}label:{
+            HStack(spacing:11){Image(systemName:job.symbol).frame(width:32,height:32).background(job.status=="failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.10),in:RoundedRectangle(cornerRadius:9))
+                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)
+                    if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}
+                };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.tertiary)
+            }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
+        }.buttonStyle(.plain).help("Codex에서 \(job.title) 열기").contextMenu{if job.status=="failed"{Button("오류 확인했어요"){model.dismissError(job)}}}
+    }
+    var settings:some View {
+        VStack(alignment:.leading,spacing:16){
+            Text("알림과 실행").font(.title3.weight(.semibold))
+            Toggle("로그인 시 모트 실행",isOn:Binding(get:{model.loginEnabled},set:{model.setLogin($0)}))
+            Divider()
+            Toggle("승인·질문 알림",isOn:$model.attentionAlerts)
+            Toggle("승인·질문 알림 소리",isOn:$model.attentionSound)
+            Toggle("작업 완료 알림",isOn:$model.completionAlerts)
+            Toggle("완료·오류 알림 소리",isOn:$model.completionSound)
+            Toggle("오류 알림",isOn:$model.errorAlerts)
+            Button(model.paused ? "알림 다시 켜기":"30분 동안 알림 쉬기"){if model.paused{model.resume()}else{model.pause()}}
+            Text("작업 상태는 알림을 쉬는 동안에도 계속 표시돼요.").font(.caption).foregroundStyle(.secondary)
+            Text("자동 실행은 앱을 고정된 위치에 두고 설정하세요.").font(.caption).foregroundStyle(.secondary)
+        }.toggleStyle(.switch).padding(.vertical,8)
     }
 }
 @MainActor final class AppDelegate:NSObject,NSApplicationDelegate,UNUserNotificationCenterDelegate {
@@ -159,7 +250,7 @@ struct Panel: View {
         panel.isOpaque=false;panel.backgroundColor = .clear;panel.hasShadow=true;panel.level = .floating
         panel.isMovableByWindowBackground=true;panel.hidesOnDeactivate=false
         panel.standardWindowButton(.closeButton)?.isHidden=true;panel.standardWindowButton(.miniaturizeButton)?.isHidden=true;panel.standardWindowButton(.zoomButton)?.isHidden=true
-        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : self.monitor.waiting>0 ? " ! \(self.monitor.waiting)" : self.monitor.unread>0 ? " 답변 \(self.monitor.unread)" : self.monitor.active>0 ? " \(self.monitor.active)":""}
+        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : self.monitor.waiting>0 ? " ! \(self.monitor.waiting)" : self.monitor.unread>0 ? " 답변 \(self.monitor.unread)" : self.monitor.jobs.contains{$0.status=="failed"} ? " 오류" : self.monitor.active>0 ? " \(self.monitor.active)":""}
         monitor.start();toggle();fputs("Mote panel ready\n",stderr)
     }
     @objc func toggle(){
@@ -168,7 +259,7 @@ struct Panel: View {
         // visibleFrame excludes the menu bar; safeAreaInsets also protects notched displays.
         let visible=screen.visibleFrame
         let top=min(visible.maxY,screen.frame.maxY-screen.safeAreaInsets.top)-12
-        let height=min(720,top-visible.minY-12)
+        let height=min(650,top-visible.minY-12)
         let width=min(440,visible.width-24)
         let anchor=item.button?.window?.frame.midX ?? visible.maxX-24
         let x=max(visible.minX+12,min(anchor-width/2,visible.maxX-width-12))
@@ -179,4 +270,8 @@ struct Panel: View {
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification,withCompletionHandler completion:@escaping(UNNotificationPresentationOptions)->Void){completion([.banner,.sound])}
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse,withCompletionHandler completion:@escaping()->Void){let id=response.notification.request.content.userInfo["threadID"] as? String;Task{@MainActor in if let id,id != "test"{self.monitor.open(id)}};completion()}
 }
-if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {if CommandLine.arguments.contains("--titles"){print(job.title)};print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.finishLaunching();delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification));withExtendedLifetime(delegate){app.run()}}}
+if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {if CommandLine.arguments.contains("--titles"){print(job.title)};print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let lockURL=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Mote")
+try? FileManager.default.createDirectory(at:lockURL,withIntermediateDirectories:true)
+let instanceFD=Darwin.open(lockURL.appendingPathComponent("instance.lock").path,O_CREAT|O_RDWR,0o600)
+guard instanceFD>=0,flock(instanceFD,LOCK_EX|LOCK_NB)==0 else{exit(0)}
+let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.finishLaunching();delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification));withExtendedLifetime(delegate){app.run()}}}

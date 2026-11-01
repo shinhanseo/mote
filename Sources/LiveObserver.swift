@@ -7,6 +7,18 @@ struct LiveState {
     var requestIDs: [String] = []
     var revision: Int = -1
     var unread:Bool?
+    struct Turn {var id:String;var status:String;var started:Double}
+    var turns:[String:Turn]=[:]
+    var latestTurn:Turn? {turns.values.max{$0.started<$1.started}}
+    mutating func capture(_ key:String,_ object:[String:Any]){
+        guard let id=object["turnId"] as? String,let status=object["status"] as? String else{return}
+        turns[key]=Turn(id:id,status:status,started:object["turnStartedAtMs"] as? Double ?? 0)
+        if turns.count>200 {turns=Dictionary(uniqueKeysWithValues:turns.sorted{$0.value.started>$1.value.started}.prefix(100).map{($0.key,$0.value)})}
+    }
+    mutating func captureHistory(_ history:[String:Any]){
+        guard let store=history["history"] as? [String:Any],let entities=store["entitiesByKey"] as? [String:[String:Any]] else{return}
+        for (key,object) in entities {capture(key,object)}
+    }
     var waiting: String? {
         guard runtime["type"] as? String == "active" else { return nil }
         let flags = runtime["activeFlags"] as? [String] ?? []
@@ -17,6 +29,9 @@ struct LiveState {
     mutating func apply(_ change:[String:Any]) -> Bool {
         guard let rev=change["revision"] as? Int else { return false }
         if change["type"] as? String == "snapshot", let state=change["conversationState"] as? [String:Any] {
+            turns.removeAll()
+            if let history=state["turnHistory"] as? [String:Any] {captureHistory(history)}
+            if let list=state["turns"] as? [[String:Any]] {for (i,object) in list.enumerated(){capture("legacy:\(i)",object)}}
             unread=state["hasUnreadTurn"] as? Bool
             runtime=state["threadRuntimeStatus"] as? [String:Any] ?? [:]
             requestIDs=(state["requests"] as? [[String:Any]] ?? []).compactMap { request in
@@ -28,6 +43,22 @@ struct LiveState {
         for patch in patches {
             guard let path=patch["path"] as? [Any],let first=path.first as? String else {continue}
             let op=patch["op"] as? String ?? ""
+            if first == "turnHistory" {
+                if path.count==1,let history=patch["value"] as? [String:Any]{turns.removeAll();captureHistory(history)}
+                else if path.count>=4,path[1] as? String == "history",path[2] as? String == "entitiesByKey",let key=path[3] as? String {
+                    if path.count==4 {if op=="remove"{turns.removeValue(forKey:key)}else if let object=patch["value"] as? [String:Any]{capture(key,object)}}
+                    else if path.count==5,let field=path[4] as? String,var turn=turns[key]{
+                        if field=="status",let value=patch["value"] as? String {turn.status=value}
+                        if field=="turnStartedAtMs",let value=patch["value"] as? Double {turn.started=value}
+                        turns[key]=turn
+                    }
+                }
+            }
+            if first == "turns",path.count>=2,let index=path[1] as? Int {
+                let key="legacy:\(index)"
+                if path.count==2,let object=patch["value"] as? [String:Any]{capture(key,object)}
+                else if path.count==3,path[2] as? String == "status",var turn=turns[key],let value=patch["value"] as? String {turn.status=value;turns[key]=turn}
+            }
             if first == "hasUnreadTurn" {unread=patch["value"] as? Bool}
             if first == "threadRuntimeStatus" {
                 runtime=Self.edit(runtime,path:Array(path.dropFirst()),value:patch["value"] ?? NSNull(),remove:op=="remove") as? [String:Any] ?? [:]

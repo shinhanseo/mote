@@ -39,3 +39,13 @@ with tempfile.TemporaryDirectory() as h:
  out=subprocess.check_output([str(binary),'--diagnose','--titles'],env={**os.environ,'CODEX_HOME':h},text=True)
  assert '제목 없는 대화' in out and 'RAW PROMPT' not in out
  print('PASS: conversation name preferred; unnamed conversations never expose first prompt')
+with tempfile.TemporaryDirectory() as h:
+ c=sqlite3.connect(h+'/state_5.sqlite');c.execute('CREATE TABLE threads(id,title,cwd,archived,agent_path,updated_at)')
+ d=sqlite3.connect(h+'/thread_history_1.sqlite');d.execute('CREATE TABLE thread_turns(thread_id,turn_id,status,started_at,rollout_ordinal)')
+ for i in range(30):
+  c.execute('INSERT INTO threads VALUES(?,?,?,0,NULL,?)',(str(i),'fixture','/work/project',30-i))
+  d.execute('INSERT INTO thread_turns VALUES(?,?,?,?,1)',(str(i),'turn','inProgress' if i==29 else 'completed',time.time()))
+ c.commit();d.commit()
+ out=subprocess.check_output([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True)
+ assert '29 inProgress' in out and 'Detected 21 local tasks' in out,out
+ print('PASS: active task outside recent 20 stays monitored')
