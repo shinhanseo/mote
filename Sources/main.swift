@@ -24,7 +24,9 @@ struct LocalReader {
         let home = ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory()+"/.codex"
         let files = try FileManager.default.contentsOfDirectory(atPath:home)
         guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw NSError(domain:"Codex 기록을 찾지 못했어요",code:4) }
-        let threads = try query(home+"/"+state,"SELECT id, title, cwd FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC LIMIT 20")
+        let columns=try query(home+"/"+state,"PRAGMA table_info(threads)").map{$0[1]}
+        let titleColumn=columns.contains("name") ? "COALESCE(NULLIF(TRIM(name),''),'')" : "''"
+        let threads = try query(home+"/"+state,"SELECT id, \(titleColumn), cwd FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC LIMIT 20")
         let turns = try query(home+"/thread_history_1.sqlite", "SELECT t.thread_id,t.turn_id,t.status,COALESCE(t.started_at,0) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
         // Desktop read receipts are authoritative for the published turn. Stream snapshots
         // can retain hasUnreadTurn after the desktop handles a separate read-state event.
@@ -38,7 +40,7 @@ struct LocalReader {
                 let seconds = stamp > 10_000_000_000 ? stamp/1000 : stamp
                 if Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
             }
-            return Job(id:row[0],title:row[1].isEmpty ? "이름 없는 작업" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipts[row[0]].flatMap{ receipt in receipt[2] == t?[1] ? receipt[1] == "1" : nil })
+            return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipts[row[0]].flatMap{ receipt in receipt[2] == t?[1] ? receipt[1] == "1" : nil })
         }
     }
 }
@@ -177,4 +179,4 @@ struct Panel: View {
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification,withCompletionHandler completion:@escaping(UNNotificationPresentationOptions)->Void){completion([.banner,.sound])}
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse,withCompletionHandler completion:@escaping()->Void){let id=response.notification.request.content.userInfo["threadID"] as? String;Task{@MainActor in if let id,id != "test"{self.monitor.open(id)}};completion()}
 }
-if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.finishLaunching();delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification));withExtendedLifetime(delegate){app.run()}}}
+if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {if CommandLine.arguments.contains("--titles"){print(job.title)};print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.finishLaunching();delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification));withExtendedLifetime(delegate){app.run()}}}

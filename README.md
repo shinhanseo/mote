@@ -6,6 +6,7 @@ A local-first macOS menu bar companion for Codex Desktop. A little dust fairy ke
 
 - Animated menu-bar dust fairy: typing while running, raised waving hand while waiting, still while idle. Cached monochrome frames respect Reduce Motion and stop when displays sleep.
 - Native frosted-glass panel, muted olive accents, notch-aware placement and Escape to dismiss.
+- Conversation names match Codex’s `threads.name` field; unnamed chats show “제목 없는 대화”, never the first prompt or attachment metadata. Names refresh on the normal polling interval.
 - Recent Codex tasks, running/completed/failed/interrupted states and links back to their conversations.
 - Live approval and answer waiting detection: raised hand, larger eyes, waiting count in the menu bar, waiting tasks first.
 - Unread completed replies remain visible as a menu-bar reply count, a moving envelope and a dot in the task list. A matching `thread_read_receipts` row is authoritative and is refreshed every three seconds, overriding stale stream snapshots; the desktop `hasUnreadTurn` flag is a fallback when no matching receipt is available; no guess based on merely opening Mote. Approval/input waits take priority.

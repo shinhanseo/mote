@@ -28,3 +28,14 @@ with tempfile.TemporaryDirectory() as h:
  c.execute("UPDATE thread_read_receipts SET last_published_turn='older-turn'");c.commit()
  assert 'unread=unknown' in diagnose()
  print('PASS: unread -> desktop read clears receipt; unrelated turn receipt ignored')
+with tempfile.TemporaryDirectory() as h:
+ c=sqlite3.connect(h+'/state_5.sqlite');c.execute('CREATE TABLE threads(id,title,cwd,archived,agent_path,updated_at,name)')
+ c.execute('INSERT INTO threads VALUES(?,?,?,0,NULL,1,?)',('named','RAW PROMPT MUST NOT DISPLAY','/work/project','사용자가 정한 제목'));c.commit()
+ d=sqlite3.connect(h+'/thread_history_1.sqlite');d.execute('CREATE TABLE thread_turns(thread_id,turn_id,status,started_at,rollout_ordinal)');d.commit()
+ # Diagnostic titles are opt-in and used here only with fixtures.
+ out=subprocess.check_output([str(binary),'--diagnose','--titles'],env={**os.environ,'CODEX_HOME':h},text=True)
+ assert '사용자가 정한 제목' in out and 'RAW PROMPT' not in out
+ c.execute('UPDATE threads SET name=NULL');c.commit()
+ out=subprocess.check_output([str(binary),'--diagnose','--titles'],env={**os.environ,'CODEX_HOME':h},text=True)
+ assert '제목 없는 대화' in out and 'RAW PROMPT' not in out
+ print('PASS: conversation name preferred; unnamed conversations never expose first prompt')
