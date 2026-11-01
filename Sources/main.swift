@@ -52,7 +52,7 @@ struct LocalReader {
     var chosen: Job? { jobs.first{$0.id==selected} ?? jobs.first }
     func start() {
         live.onState = {[weak self] id,state in Task { @MainActor in self?.receive(id,state) }}
-        live.onConnection = {[weak self] connected in Task { @MainActor in guard let self else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile()}}}
+        live.onConnection = {[weak self] connected in Task { @MainActor in guard let self else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile();self.onUpdate?()}}}
         live.start();refresh(); timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in Task { @MainActor in self?.refresh() }}; updatePermission() }
     func updatePermission() { UNUserNotificationCenter.current().getNotificationSettings { settings in Task { @MainActor in self.notificationStatus = settings.authorizationStatus == .authorized ? "알림 켜짐" : "알림 허용 필요" } } }
     func requestNotifications() {
@@ -140,19 +140,19 @@ struct Panel: View {
     }
 }
 @MainActor final class AppDelegate:NSObject,NSApplicationDelegate,UNUserNotificationCenterDelegate {
-    var didSetup=false;let monitor=Monitor();var item:NSStatusItem!;var panel:MotePanel!
+    var didSetup=false;let monitor=Monitor();var item:NSStatusItem!;var panel:MotePanel!;var menuFairy:MenuFairy!
     func applicationDidFinishLaunching(_ notification:Notification){
         guard !didSetup else{return};didSetup=true
         fputs("Mote startup\n",stderr);NSApp.setActivationPolicy(.accessory);UNUserNotificationCenter.current().delegate=self
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         item.button?.target=self;item.button?.action=#selector(toggle)
-        let image=NSImage(size:NSSize(width:23,height:20),flipped:false){rect in NSColor.labelColor.setFill();NSBezierPath(ovalIn:NSRect(x:3,y:2,width:17,height:16)).fill();for i in 0..<12 {let a=Double(i)*Double.pi/6;NSBezierPath(ovalIn:NSRect(x:10+cos(a)*8,y:9+sin(a)*7,width:4,height:4)).fill()};NSColor.windowBackgroundColor.setFill();for x in [8.0,15.0]{NSBezierPath(ovalIn:NSRect(x:x,y:9,width:3,height:4)).fill()};return true};image.isTemplate=true;item.button?.image=image
+        menuFairy=MenuFairy(button:item.button);menuFairy.update("idle")
         panel=MotePanel(contentRect:NSRect(x:0,y:0,width:440,height:700),styleMask:[.titled,.fullSizeContentView],backing:.buffered,defer:false)
         panel.title="Mote";panel.titleVisibility = .hidden;panel.titlebarAppearsTransparent=true
         panel.isOpaque=false;panel.backgroundColor = .clear;panel.hasShadow=true;panel.level = .floating
         panel.isMovableByWindowBackground=true;panel.hidesOnDeactivate=false
         panel.standardWindowButton(.closeButton)?.isHidden=true;panel.standardWindowButton(.miniaturizeButton)?.isHidden=true;panel.standardWindowButton(.zoomButton)?.isHidden=true
-        monitor.onUpdate = {[weak self] in guard let self else{return};self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : self.monitor.waiting>0 ? " ! \(self.monitor.waiting)" : self.monitor.active>0 ? " \(self.monitor.active)":""}
+        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : self.monitor.waiting>0 ? " ! \(self.monitor.waiting)" : self.monitor.active>0 ? " \(self.monitor.active)":""}
         monitor.start();toggle();fputs("Mote panel ready\n",stderr)
     }
     @objc func toggle(){

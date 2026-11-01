@@ -4,6 +4,7 @@ A local-first macOS menu bar companion for Codex Desktop. A little dust fairy ke
 
 ## Features
 
+- Animated menu-bar dust fairy: typing while running, raised waving hand while waiting, still while idle. Cached monochrome frames respect Reduce Motion and stop when displays sleep.
 - Native frosted-glass panel, muted olive accents, notch-aware placement and Escape to dismiss.
 - Recent Codex tasks, running/completed/failed/interrupted states and links back to their conversations.
 - Live approval and answer waiting detection: raised hand, larger eyes, waiting count in the menu bar, waiting tasks first.
