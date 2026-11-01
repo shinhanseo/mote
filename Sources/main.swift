@@ -188,6 +188,31 @@ enum Palette {
     })
 }
 final class MotePanel: NSPanel { override var canBecomeKey:Bool { true }; override func cancelOperation(_ sender:Any?) { orderOut(nil) } }
+struct RunningIndicator:View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body:some View {
+        TimelineView(.animation(minimumInterval:0.1,paused:reduceMotion)){context in
+            let phase=reduceMotion ? 0:context.date.timeIntervalSince1970
+            ZStack {
+                Circle().stroke(Palette.olive.opacity(0.14),lineWidth:2)
+                Circle().trim(from:0,to:0.28).stroke(Palette.olive,style:StrokeStyle(lineWidth:2,lineCap:.round))
+                    .rotationEffect(.degrees(reduceMotion ? -90:phase*130))
+            }.frame(width:17,height:17)
+        }.accessibilityLabel("작업 진행 중")
+    }
+}
+struct RunningCaption:View {
+    var project:String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body:some View {
+        TimelineView(.animation(minimumInterval:0.25,paused:reduceMotion)){context in
+            let step=Int(context.date.timeIntervalSince1970*3)%3
+            HStack(spacing:5){Text("\(project) · 작업 중");HStack(spacing:3){ForEach(0..<3){i in
+                Circle().fill(Palette.olive.opacity(reduceMotion || i==step ? 0.85:0.20)).frame(width:3,height:3)
+            }}.accessibilityHidden(true)}.font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
 struct Panel:View {
     @ObservedObject var model:Monitor
     var headline:String {
@@ -220,8 +245,8 @@ struct Panel:View {
     }
     func row(_ job:Job)->some View {
         Button{model.open(job.id)}label:{
-            HStack(spacing:11){Image(systemName:job.symbol).frame(width:32,height:32).background(job.status=="failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.10),in:RoundedRectangle(cornerRadius:9))
-                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing:11){Group{if job.status=="inProgress"{RunningIndicator()}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).background(job.status=="failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.10),in:RoundedRectangle(cornerRadius:9))
+                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project)}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
                     if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}
                 };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.tertiary)
             }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
