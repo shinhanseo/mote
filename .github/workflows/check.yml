@@ -15,5 +15,7 @@ jobs:
         run: Tests/check_alert_placement.sh
       - name: Test monitor lifecycle
         run: Tests/check_monitor_flow.sh
+      - name: Check release website gating
+        run: python3 Tests/check_release_preparation.py
       - name: Verify signature
         run: codesign --verify --strict Mote.app
