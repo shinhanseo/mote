@@ -23,3 +23,5 @@ Open http://127.0.0.1:4173. `index.html` can also be opened directly; there is n
 - To deploy with Sites later, register the Site and set its hosting manifest; no Site identity has been created for this local draft.
 
 The website lives beside the Swift app in the same Git repository but runs and deploys independently. App changes do not automatically become website updates; update the truthful feature descriptions and version together.
+
+Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.2.0/Mote-0.2.0.dmg
