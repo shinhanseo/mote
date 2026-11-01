@@ -49,3 +49,15 @@ with tempfile.TemporaryDirectory() as h:
  out=subprocess.check_output([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True)
  assert '29 inProgress' in out and 'Detected 21 local tasks' in out,out
  print('PASS: active task outside recent 20 stays monitored')
+
+# Unread completed chats outside the recent window must still be visible.
+with tempfile.TemporaryDirectory() as h:
+ c=sqlite3.connect(h+'/state_5.sqlite');c.executescript('CREATE TABLE threads(id,title,cwd,archived,agent_path,updated_at); CREATE TABLE thread_read_receipts(thread_id,first_unread_turn,last_published_turn);')
+ d=sqlite3.connect(h+'/thread_history_1.sqlite');d.execute('CREATE TABLE thread_turns(thread_id,turn_id,status,started_at,rollout_ordinal)')
+ for i in range(25):
+  c.execute('INSERT INTO threads VALUES(?,?,?,0,NULL,?)',(str(i),'fixture','/work/project',25-i))
+  d.execute('INSERT INTO thread_turns VALUES(?,?,?,?,1)',(str(i),'turn','completed',time.time()))
+ c.execute('INSERT INTO thread_read_receipts VALUES(?,?,?)',('24','turn','turn'));c.commit();d.commit()
+ out=subprocess.check_output([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True)
+ assert '24 completed unread=true' in out,out
+ print('PASS: unread conversation outside recent 20 stays monitored')

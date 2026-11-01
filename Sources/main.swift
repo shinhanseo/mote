@@ -46,7 +46,7 @@ struct LocalReader {
                 if Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
             }
             let receipt:Bool?=receipts[row[0]].flatMap{r in r[2] == t?[1] ? r[1] == "1" : nil}
-            guard index<20 || t?[2]=="inProgress" || currentIDs.contains(row[0]) else{return nil}
+            guard index<20 || t?[2]=="inProgress" || receipt==true || currentIDs.contains(row[0]) else{return nil}
             return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipt,startedAt:{let v=Double(t?[3] ?? "0") ?? 0;return v>10_000_000_000 ? v/1000:v}())
         }
     }
@@ -132,6 +132,7 @@ struct LocalReader {
         }
     }
     func notify(_ job:Job,requests:[String]=[],test:Bool=false) {
+        guard test || job.status != "completed" || job.readReceipt != false else{return}
         let attention=["approval","answer"].contains(job.status)
         guard test || (!muted && !paused && (attention ? attentionAlerts : job.status=="failed" ? errorAlerts:completionAlerts)) else{return}
         let key=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)
@@ -208,10 +209,11 @@ struct LocalReader {
     }
     func receive(_ id:String,_ state:LiveState) {
         let old=liveStates[id]
+        if let latest=state.latestTurn,let raw=rawJobs.first(where:{$0.id==id}),latest.id != raw.turn,latest.started/1000 < raw.startedAt {return}
         if let latest=state.latestTurn,rawJobs.contains(where:{$0.id==id}){followNewTurn(id:id,turn:latest.id,started:latest.started/1000)}
         if let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
             latest.id != prior.id || latest.status != prior.status,let raw=rawJobs.first(where:{$0.id==id}) {
-            var finished=raw;finished.turn=latest.id;finished.status=latest.status;notify(finished)
+            var finished=raw;finished.turn=latest.id;finished.status=latest.status;finished.readReceipt = raw.turn == latest.id ? raw.readReceipt:nil;notify(finished)
             refresh()
         }
         if liveStates[id]?.waiting != state.waiting {fputs("Mote waiting state: \(state.waiting ?? "none")\n",stderr)}
@@ -226,11 +228,22 @@ struct LocalReader {
         jobs=rawJobs.map {raw in
             var job=raw
             if let liveState=liveStates[raw.id] {
-                if let kind=liveState.waiting {job.status=kind;job.reason=liveState.requestReasons.values.sorted().first}
-                // A desktop-owned active thread is authoritative over old persisted inProgress rows.
-                else if liveState.runtime["type"] as? String == "active" {job.status="inProgress"}
+                // Never let an old stream snapshot overwrite a newer persisted turn.
+                let latest=liveState.latestTurn
+                let usable=latest == nil || latest?.id == raw.turn || (latest!.started/1000 >= raw.startedAt)
+                if usable {
+                    if let latest,latest.id != raw.turn {
+                        job.turn=latest.id;job.startedAt=latest.started/1000;job.readReceipt=nil
+                        job.status=latest.status
+                    } else if let latest,["completed","failed","interrupted"].contains(latest.status) {
+                        job.status=latest.status
+                    }
+                    if let kind=liveState.waiting {job.status=kind;job.reason=liveState.requestReasons.values.sorted().first}
+                    else if liveState.runtime["type"] as? String == "active",latest == nil || latest?.status == "inProgress" {job.status="inProgress"}
+                    if job.status=="completed",(job.readReceipt ?? liveState.unread)==true {job.status="unread"}
+                }
             }
-            if job.status=="completed",(raw.readReceipt ?? liveStates[raw.id]?.unread)==true{job.status="unread"}
+            if job.status=="completed",job.readReceipt==true{job.status="unread"}
             if job.status=="unread",PresentationPolicy.isDeferred(thread:job.id,turn:job.turn,records:deferred){job.status="deferred"}
             if ["approval","answer"].contains(job.status){
                 let state=liveStates[raw.id]
@@ -247,9 +260,17 @@ struct LocalReader {
         if waitTimes.count>500 {waitTimes=Dictionary(uniqueKeysWithValues:waitTimes.sorted{$0.value>$1.value}.prefix(300).map{($0.key,$0.value)})}
         MotePreferences.store.set(waitTimes,forKey:"waitTimes");clearResolvedAlerts()
     }
+    var openURL:(URL)->Bool = {NSWorkspace.shared.open($0)}
+    static func conversationURL(_ id:String)->URL? {
+        guard !id.isEmpty,id.unicodeScalars.allSatisfy({CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"}) else{return nil}
+        var parts=URLComponents();parts.scheme="codex";parts.host="threads";parts.path="/"+id
+        parts.queryItems=[URLQueryItem(name:"hostId",value:"local")]
+        return parts.url
+    }
     func open(_ id:String) {
-        guard let url=URL(string:"codex://threads/"+id) else{return}
-        if NSWorkspace.shared.open(url){makeCurrent(id)}else{error="Codex에서 대화를 열지 못했어요."}
+        guard let url=Self.conversationURL(id) else{error="대화 링크가 올바르지 않아요.";onUpdate?();return}
+        if openURL(url){makeCurrent(id);refresh()}else{error="Codex에서 대화를 열지 못했어요. Codex 설치와 실행 상태를 확인해 주세요.";onUpdate?()}
+        // Opening a link is not proof that a reply was read; only Codex receipts clear it.
     }
 
 }

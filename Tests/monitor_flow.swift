@@ -40,6 +40,26 @@ MainActor.assumeIsolated {
     m.notify(complete);m.notify(b);m.flushCompletions()
     expect(delivered.count==1 && delivered[0].count==2,"simultaneous completions grouped")
     expect(m.menuSummary.contains("답변 2"),"menu summary includes unread count")
+    // Real stream/SQLite races: newer live completion must not inherit an old read receipt.
+    let r=Monitor();r.onNotice={_,_,_ in};r.completionAlerts=true;r.muted=false;r.pauseUntil=nil
+    var oldRead=complete;oldRead.readReceipt=false;oldRead.startedAt=100
+    r.apply(.success([oldRead]))
+    var fresh=LiveState();fresh.runtime=["type":"idle"];fresh.unread=true
+    fresh.turns=["new":LiveState.Turn(id:"new-turn",status:"completed",started:200_000)]
+    r.receive(oldRead.id,fresh)
+    expect(r.jobs.first?.turn=="new-turn" && r.unread==1,"new live turn ignores old read receipt")
+    var persisted=oldRead;persisted.turn="new-turn";persisted.startedAt=200;persisted.readReceipt=false
+    r.apply(.success([persisted]));expect(r.unread==0,"matching desktop receipt clears stale live unread")
+    var stale=fresh;stale.turns=["old":LiveState.Turn(id:oldRead.turn,status:"inProgress",started:100_000)]
+    stale.runtime=["type":"active","activeFlags":["waitingOnApproval"]]
+    r.receive(oldRead.id,stale);expect(r.waiting==0,"older stream cannot resurrect approval")
+    let before=r.ledger.sent.count;r.notify(persisted)
+    expect(r.ledger.sent.count==before,"already-read completion never claims an alert")
+    var opened:URL?;r.openURL={opened=$0;return true};r.open(oldRead.id)
+    expect(opened?.host=="threads" && opened?.path=="/chat-a" && URLComponents(url:opened!,resolvingAgainstBaseURL:false)?.queryItems?.first?.value=="local","exact local conversation route")
+    expect(Monitor.conversationURL("chat-a?hostId=remote")==nil,"reject route injection")
+    r.openURL={_ in false};r.open(oldRead.id);expect(r.error != nil,"failed open is visible")
+    r.completionTask?.cancel()
     m.pause();m.notify(running);expect(delivered.count==1,"snooze suppresses notifications")
     m.resume();m.completionTask?.cancel()
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
