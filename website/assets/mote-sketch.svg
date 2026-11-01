@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160" fill="none">
 <!-- Uneven curves keep the character closer to a little pencil doodle. -->
-<g stroke="#44463f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-<path d="M45 101C30 105 11 120 13 126C15 131 35 117 49 113M151 103C165 105 187 114 187 120C180 123 164 114 150 113" fill="#fffef8"/>
-<path d="M44 58C39 47 45 36 55 36C53 26 63 23 70 27C73 15 83 18 88 24C98 12 105 19 110 25C121 17 128 25 130 30C143 28 150 34 148 45C160 44 165 54 158 63C169 69 165 80 160 85C169 95 162 104 157 107C163 120 151 127 143 125C144 140 130 143 123 134C117 149 104 146 100 137C90 150 78 146 76 137C64 146 54 136 55 127C42 132 36 119 41 110C29 105 31 91 37 86C29 75 36 62 44 58Z" fill="#fffef8"/>
-<path d="M48 60C43 48 47 39 56 39M149 85C155 99 150 119 140 128" stroke="#96988b" stroke-width=".7" opacity=".35"/>
-<path d="M68 65C59 65 57 77 63 82C72 88 82 79 78 71C76 66 72 64 68 65Z" fill="#696b62" stroke="none"/>
-<path d="M119 64C110 62 105 73 110 80C116 87 130 81 128 72C127 67 123 66 119 64Z" fill="#696b62" stroke="none"/>
-<circle cx="70" cy="73" r="3" fill="#fffef8" stroke="none"/><circle cx="117" cy="72" r="3" fill="#fffef8" stroke="none"/>
-<path d="M58 97C68 88 82 94 96 95C111 99 126 89 134 96C141 102 137 115 126 118C107 125 78 122 64 116C57 113 55 103 58 97Z" stroke="#77796e" stroke-width="2"/>
-<path d="M59 98C78 102 116 101 135 98" stroke="#a8aa9e" stroke-width="1"/>
+<g stroke="#30352b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+<path d="M45 101C30 105 11 120 13 126C15 131 35 117 49 113M151 103C165 105 187 114 187 120C180 123 164 114 150 113" fill="#30352b"/>
+<path d="M44 58C39 47 45 36 55 36C53 26 63 23 70 27C73 15 83 18 88 24C98 12 105 19 110 25C121 17 128 25 130 30C143 28 150 34 148 45C160 44 165 54 158 63C169 69 165 80 160 85C169 95 162 104 157 107C163 120 151 127 143 125C144 140 130 143 123 134C117 149 104 146 100 137C90 150 78 146 76 137C64 146 54 136 55 127C42 132 36 119 41 110C29 105 31 91 37 86C29 75 36 62 44 58Z" fill="#30352b"/>
+<path d="M48 60C43 48 47 39 56 39M149 85C155 99 150 119 140 128" stroke="#55594d" stroke-width=".7" opacity=".35"/>
+<path d="M68 65C59 65 57 77 63 82C72 88 82 79 78 71C76 66 72 64 68 65Z" fill="#fffef8" stroke="none"/>
+<path d="M119 64C110 62 105 73 110 80C116 87 130 81 128 72C127 67 123 66 119 64Z" fill="#fffef8" stroke="none"/>
+<circle cx="70" cy="73" r="3" fill="#30352b" stroke="none"/><circle cx="117" cy="72" r="3" fill="#30352b" stroke="none"/>
+<path d="M58 97C68 88 82 94 96 95C111 99 126 89 134 96C141 102 137 115 126 118C107 125 78 122 64 116C57 113 55 103 58 97Z" stroke="#fffef8" stroke-width="2"/>
+<path d="M59 98C78 102 116 101 135 98" stroke="#fffef8" stroke-width="1"/>
 </g></svg>
