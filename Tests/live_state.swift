@@ -1,0 +1,15 @@
+import Foundation
+func check(_ value:Bool,_ message:String){if !value{fatalError(message)}}
+var state=LiveState()
+check(state.apply(["type":"snapshot","revision":1,"conversationState":["threadRuntimeStatus":["type":"active","activeFlags":[String]()],"requests":[]]]),"snapshot")
+check(state.waiting==nil,"working is not waiting")
+check(state.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["threadRuntimeStatus","activeFlags",0],"value":"waitingOnApproval"]]]),"approval patch")
+check(state.waiting=="approval","approval detection")
+check(state.apply(["type":"patches","baseRevision":2,"revision":3,"patches":[["op":"replace","path":["threadRuntimeStatus","activeFlags",0],"value":"waitingOnUserInput"]]]),"answer patch")
+check(state.waiting=="answer","answer detection")
+check(state.apply(["type":"patches","baseRevision":3,"revision":4,"patches":[["op":"remove","path":["threadRuntimeStatus","activeFlags",0]]]]),"resume patch")
+check(state.waiting==nil,"resume clears wait")
+check(!state.apply(["type":"patches","baseRevision":1,"revision":5,"patches":[]]),"revision gap rejected")
+check(state.apply(["type":"snapshot","revision":9,"conversationState":["threadRuntimeStatus":["type":"idle","activeFlags":["waitingOnApproval"]]]]),"resnapshot")
+check(state.waiting==nil,"idle cannot retain wait")
+print("PASS: approval, answer, resume, stale revision rejection, fresh snapshot, idle precedence")

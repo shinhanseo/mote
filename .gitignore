@@ -1,0 +1,8 @@
+.DS_Store
+Mote.app/
+*.zip
+.build/
+DerivedData/
+*.log
+.env
+.env.*

@@ -1,0 +1,15 @@
+name: Build and test
+on: [push, pull_request]
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native app
+        run: ./build.sh
+      - name: Test local reader
+        run: python3 Tests/check_reader.py
+      - name: Test live state reducer
+        run: Tests/check_live_state.sh
+      - name: Verify signature
+        run: codesign --verify --strict Mote.app
