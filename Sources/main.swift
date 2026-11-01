@@ -6,7 +6,7 @@ import ServiceManagement
 import Darwin
 
 struct Job: Identifiable, Equatable {
-    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil;var waitSince:Date? = nil
+    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil;var waitSince:Date? = nil;var startedAt:Double = 0
     var label: String { switch status {case "unread": return "답변 도착 · 미확인"; case "approval": return "승인 대기"; case "answer": return "답변 대기"; case "inProgress": return "작업 중"; case "completed": return "완료"; case "failed": return "오류"; case "interrupted": return "중단됨"; default: return "확인 필요"} }
     var symbol: String { switch status {case "unread": return "envelope.badge"; case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
 }
@@ -44,7 +44,7 @@ struct LocalReader {
             }
             let receipt:Bool?=receipts[row[0]].flatMap{r in r[2] == t?[1] ? r[1] == "1" : nil}
             guard index<20 || t?[2]=="inProgress" || row[0]==currentID else{return nil}
-            return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipt)
+            return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipt,startedAt:{let v=Double(t?[3] ?? "0") ?? 0;return v>10_000_000_000 ? v/1000:v}())
         }
     }
 }
@@ -62,6 +62,12 @@ struct LocalReader {
     @Published var completionSound=UserDefaults.standard.object(forKey:"completionSound") as? Bool ?? false {didSet{UserDefaults.standard.set(completionSound,forKey:"completionSound")}}
     @Published var loginEnabled=SMAppService.mainApp.status == .enabled
     @Published var settingsError:String?
+    var currentPolicy=CurrentConversationPolicy(started:UserDefaults.standard.double(forKey:"currentTurnStarted"),turnID:UserDefaults.standard.string(forKey:"currentTurnID") ?? "")
+    func followNewTurn(id:String,turn:String,started:Double){
+        if let next=currentPolicy.observe(id:id,turn:turn,startedAt:started){
+            makeCurrent(next);UserDefaults.standard.set(currentPolicy.started,forKey:"currentTurnStarted");UserDefaults.standard.set(currentPolicy.turnID,forKey:"currentTurnID")
+        }
+    }
     var ledger=NotificationLedger(sent:UserDefaults.standard.dictionary(forKey:"notificationLedger") as? [String:Double] ?? [:])
     var waitTimes=UserDefaults.standard.dictionary(forKey:"waitTimes") as? [String:Date] ?? [:]
     var dismissedErrors=UserDefaults.standard.stringArray(forKey:"dismissedErrors") ?? []
@@ -118,12 +124,15 @@ struct LocalReader {
         reading=false
         switch result {case .success(let found):
             if baseline { for j in found { if let old=previous[j.id], ["completed","failed"].contains(j.status), (j.turn != old.turn || old.status == "inProgress") { notify(j) } } }
-            previous=Dictionary(uniqueKeysWithValues:found.map{($0.id,$0)});rawJobs=found;if selected==nil || !found.contains(where:{$0.id==selected}) {if let id=found.first?.id{makeCurrent(id)}};live.observe(found.map(\.id));reconcile();error=nil;baseline=true
+            previous=Dictionary(uniqueKeysWithValues:found.map{($0.id,$0)});rawJobs=found
+            if let newest=found.max(by:{a,b in a.startedAt==b.startedAt ? a.turn<b.turn:a.startedAt<b.startedAt}){followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}
+            if selected==nil || !found.contains(where:{$0.id==selected}) {if let id=found.first?.id{makeCurrent(id)}};live.observe(found.map(\.id));reconcile();error=nil;baseline=true
         case .failure(let e): error=e.localizedDescription }
         onUpdate?()
     }
     func receive(_ id:String,_ state:LiveState) {
         let old=liveStates[id]
+        if let latest=state.latestTurn,rawJobs.contains(where:{$0.id==id}){followNewTurn(id:id,turn:latest.id,started:latest.started/1000)}
         if let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
             latest.id != prior.id || latest.status != prior.status,let raw=rawJobs.first(where:{$0.id==id}) {
             var finished=raw;finished.turn=latest.id;finished.status=latest.status;notify(finished)
@@ -227,7 +236,7 @@ struct Panel:View {
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
                 if let current=model.currentJob {
-                    HStack{Label("현재 대화",systemImage:"pin.fill").font(.caption).foregroundStyle(.secondary);Spacer();Text("완료 후에도 유지").font(.system(size:11)).foregroundStyle(.tertiary)}
+                    HStack{Label("현재 대화",systemImage:"pin.fill").font(.caption).foregroundStyle(.secondary);Spacer();Text("새 메시지를 보내면 자동 전환").font(.system(size:11)).foregroundStyle(.tertiary)}
                     row(current)
                 }
                 HStack{Button("확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold);Button("전체 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular);Spacer()}.buttonStyle(.borderless)
