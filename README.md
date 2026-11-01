@@ -52,7 +52,7 @@ The diagnostic command prints only task IDs and statuses. Source changes preserv
 
 ## Work inbox and preferences
 
-The default inbox separates approval/input waits, unread replies and errors from running tasks. All recent tasks are available under All. Clicking a row opens that conversation immediately; errors can be acknowledged through its context menu without modifying Codex. Wait elapsed time starts when Mote first detects that request, persists locally and is explicitly labeled as detection-based.
+The default inbox separates approval/input waits, unread replies and errors from running tasks. The three latest non-running, non-attention conversations also stay visible under Recent Conversations, preserving database update order, so a conversation does not disappear simply because its reply was read. All recent tasks are available under All. Clicking a row opens that conversation immediately; errors can be acknowledged through its context menu without modifying Codex. Wait elapsed time starts when Mote first detects that request, persists locally and is explicitly labeled as detection-based.
 
 Settings expose separate attention, completion and error alerts, attention/completion sounds, a persistent 30-minute snooze and opt-in login launch via SMAppService. Completion sound defaults to off. Login registration can require macOS approval; keep the app at a stable location before enabling it. No login registration is performed by default. An advisory process lock prevents concurrent Mote instances.
 

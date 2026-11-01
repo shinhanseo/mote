@@ -68,6 +68,11 @@ struct LocalReader {
     var paused:Bool {pauseUntil.map{$0>Date()} ?? false}
     var attentionJobs:[Job] {jobs.filter{["approval","answer","unread","failed"].contains($0.status)}}
     var runningJobs:[Job] {jobs.filter{$0.status=="inProgress"}}
+    // Recent rows preserve the database's update order rather than the inbox priority order.
+    var recentJobs:[Job] {
+        let byID=Dictionary(uniqueKeysWithValues:jobs.map{($0.id,$0)})
+        return Array(rawJobs.compactMap{byID[$0.id]}.filter{!["approval","answer","unread","failed","inProgress"].contains($0.status)}.prefix(3))
+    }
     func pause(){pauseUntil=Date().addingTimeInterval(1800);UserDefaults.standard.set(pauseUntil,forKey:"pauseUntil")}
     func resume(){pauseUntil=nil;UserDefaults.standard.removeObject(forKey:"pauseUntil")}
     func setLogin(_ enabled:Bool){do{if enabled{try SMAppService.mainApp.register()}else{try SMAppService.mainApp.unregister()};loginEnabled=SMAppService.mainApp.status == .enabled;settingsError=SMAppService.mainApp.status == .requiresApproval ? "시스템 설정의 로그인 항목에서 허용해 주세요.":nil}catch{settingsError="자동 실행 설정 실패: \(error.localizedDescription)";loginEnabled=SMAppService.mainApp.status == .enabled}}
@@ -202,8 +207,9 @@ struct Panel:View {
                         if model.attentionJobs.isEmpty{Label("지금 확인할 작업은 없어요",systemImage:"checkmark.circle").foregroundStyle(.secondary).padding(.vertical,20)}
                         ForEach(model.attentionJobs){row($0)}
                         if !model.runningJobs.isEmpty{Text("진행 중 \(model.active)").font(.caption).foregroundStyle(.secondary).padding(.top,15);ForEach(model.runningJobs){row($0)}}
+                        if !model.recentJobs.isEmpty{Text("최근 대화").font(.caption).foregroundStyle(.secondary).padding(.top,15);ForEach(model.recentJobs){row($0)}}
                     }
-                }}.frame(height:min(310,CGFloat(max(1,model.all ? model.jobs.count:model.attentionJobs.count+model.runningJobs.count))*76+(model.runningJobs.isEmpty || model.all ? 0:35)))
+                }}.frame(height:min(310,CGFloat(max(1,model.all ? model.jobs.count:model.attentionJobs.count+model.runningJobs.count+model.recentJobs.count))*76+(model.runningJobs.isEmpty || model.all ? 0:35)))
             }
             if let error=model.error{Text(error).font(.caption).foregroundStyle(.orange)}
             if let message=model.settingsError{Text(message).font(.caption).foregroundStyle(.secondary)}
