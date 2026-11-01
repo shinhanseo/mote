@@ -4,6 +4,7 @@ import AppKit
 @MainActor final class MenuFairy {
     weak var button:NSStatusBarButton?
     private var timer:Timer?
+    private var screensSleeping=false
     private var state="idle"
     private var frame=0
     private var frames=[String:[NSImage]]()
@@ -14,11 +15,11 @@ import AppKit
     }
     func update(_ next:String){guard state != next || button?.image == nil else{return};state=next;restart()}
     @objc private func accessibilityChanged(){restart()}
-    @objc private func sleeping(){timer?.invalidate();timer=nil}
-    @objc private func waking(){restart()}
+    @objc private func sleeping(){screensSleeping=true;timer?.invalidate();timer=nil}
+    @objc private func waking(){screensSleeping=false;restart()}
     private func restart(){
         timer?.invalidate();timer=nil;frame=0;draw()
-        guard state != "idle",!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{return}
+        guard !screensSleeping,state != "idle",!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{return}
         let timer=Timer(timeInterval:state == "inProgress" ? 0.18:0.28,repeats:true){[weak self] _ in Task{@MainActor in guard let self else{return};self.frame=(self.frame+1)%4;self.draw()}}
         timer.tolerance=0.03;RunLoop.main.add(timer,forMode:.common);self.timer=timer
     }

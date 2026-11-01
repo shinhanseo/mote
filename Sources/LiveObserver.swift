@@ -5,6 +5,7 @@ import Darwin
 struct LiveState {
     var runtime: [String:Any] = [:]
     var requestIDs: [String] = []
+    var requestReasons:[String:String]=[:]
     var revision: Int = -1
     var unread:Bool?
     struct Turn {var id:String;var status:String;var started:Double}
@@ -34,6 +35,8 @@ struct LiveState {
             if let list=state["turns"] as? [[String:Any]] {for (i,object) in list.enumerated(){capture("legacy:\(i)",object)}}
             unread=state["hasUnreadTurn"] as? Bool
             runtime=state["threadRuntimeStatus"] as? [String:Any] ?? [:]
+            requestReasons=[:]
+            for request in state["requests"] as? [[String:Any]] ?? [] {if let method=request["method"] as? String,let reason=PresentationPolicy.requestLabel(method),let id=request["id"] {requestReasons[String(describing:id)]=reason}}
             requestIDs=(state["requests"] as? [[String:Any]] ?? []).compactMap { request in
                 (request["id"] ?? request["requestId"]).map { String(describing:$0) }
             }
@@ -65,10 +68,11 @@ struct LiveState {
             }
             if first == "requests" {
                 // IDs are used only to distinguish consecutive requests, never store request contents.
-                if path.count==1,let list=patch["value"] as? [[String:Any]] {requestIDs=list.compactMap{($0["id"] ?? $0["requestId"]).map{String(describing:$0)}}}
+                if path.count==1,let list=patch["value"] as? [[String:Any]] {requestIDs=list.compactMap{($0["id"] ?? $0["requestId"]).map{String(describing:$0)}};requestReasons=[:];for request in list{if let id=request["id"],let method=request["method"] as? String,let reason=PresentationPolicy.requestLabel(method){requestReasons[String(describing:id)]=reason}}}
                 else if path.count==2,let index=path[1] as? Int {
-                    if op=="remove",requestIDs.indices.contains(index){requestIDs.remove(at:index)}
+                    if op=="remove",requestIDs.indices.contains(index){requestReasons.removeValue(forKey:requestIDs[index]);requestIDs.remove(at:index)}
                     else if let request=patch["value"] as? [String:Any],let id=request["id"] ?? request["requestId"] {
+                        if let method=request["method"] as? String,let reason=PresentationPolicy.requestLabel(method){requestReasons[String(describing:id)]=reason}
                         if requestIDs.indices.contains(index){requestIDs[index]=String(describing:id)}else if index==requestIDs.count{requestIDs.append(String(describing:id))}
                     }
                 }
@@ -86,6 +90,7 @@ struct LiveState {
 final class LiveObserver: @unchecked Sendable {
     private let lock=NSLock();private var ids=[String]()
     var onState: (@Sendable (String,LiveState)->Void)?
+    var onDiagnostic:(@Sendable(String?)->Void)?
     var onConnection: (@Sendable (Bool)->Void)?
     func observe(_ ids:[String]) {lock.lock();self.ids=ids;lock.unlock()}
     func start(){DispatchQueue(label:"mote.codex.ipc",qos:.utility).async{self.run()}}
@@ -126,8 +131,9 @@ final class LiveObserver: @unchecked Sendable {
                 guard size>0,size<=32*1024*1024 else{return};guard buffer.count>=size+4 else{break}
                 let data=Data(buffer.dropFirst(4).prefix(size));buffer.removeFirst(size+4);lastFrame=Date()
                 guard let message=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else{return}
-                if message["type"] as? String == "response", message["method"] as? String == "initialize",let result=message["result"] as? [String:Any],let id=result["clientId"] as? String {client=id;onConnection?(true)}
+                if message["type"] as? String == "response", message["method"] as? String == "initialize",let result=message["result"] as? [String:Any],let id=result["clientId"] as? String {client=id;onDiagnostic?(nil);onConnection?(true)}
                 if message["type"] as? String == "client-discovery-request",let request=message["requestId"] {_ = send(["type":"client-discovery-response","requestId":request,"response":["canHandle":false]],fd)}
+                if message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int != 11 {onDiagnostic?("현재 Codex 실시간 형식은 아직 지원하지 않아요. 기본 기록 감지는 계속됩니다.")}
                 guard message["type"] as? String == "broadcast",message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int == 11,let params=message["params"] as? [String:Any],params["hostId"] as? String == "local",let id=params["conversationId"] as? String,wanted.contains(id),let change=params["change"] as? [String:Any] else{continue}
                 var state=states[id] ?? LiveState()
                 if state.apply(change){states[id]=state;onState?(id,state)}else{

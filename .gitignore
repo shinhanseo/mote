@@ -6,3 +6,5 @@ DerivedData/
 *.log
 .env
 .env.*
+
+release/

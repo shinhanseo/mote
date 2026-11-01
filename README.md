@@ -1,71 +1,69 @@
 # Mote
 
-A local-first macOS menu bar companion for Codex Desktop. A little dust fairy keeps track of work while you focus elsewhere.
+A local-first macOS companion for Codex Desktop. A little dust fairy keeps an eye on work while you focus elsewhere.
 
-## Features
+## What it does
 
-- Animated menu-bar dust fairy: typing while running, raised waving hand while waiting, still while idle. Cached monochrome frames respect Reduce Motion and stop when displays sleep.
-- Native frosted-glass panel, muted olive accents, notch-aware placement and Escape to dismiss.
-- Conversation names match Codex’s `threads.name` field; unnamed chats show “제목 없는 대화”, never the first prompt or attachment metadata. Names refresh on the normal polling interval.
-- Recent Codex tasks, running/completed/failed/interrupted states and links back to their conversations.
-- Live approval and answer waiting detection: raised hand, larger eyes, waiting count in the menu bar, waiting tasks first.
-- Unread completed replies remain visible as a menu-bar reply count, a moving envelope and a dot in the task list. A matching `thread_read_receipts` row is authoritative and is refreshed every three seconds, overriding stale stream snapshots; the desktop `hasUnreadTurn` flag is a fallback when no matching receipt is available; no guess based on merely opening Mote. Approval/input waits take priority.
-- Notifications for newly observed waits and observed running-to-completed/failed transitions; notification mute and test controls.
-- Read-only local integration. No API key, backend, telemetry, automatic approvals or replies.
+- Frosted-glass, notch-safe panel with one scroll surface and muted olive accents.
+- Multiple working conversations stay pinned after completion/read; new turns add or reorder them. Remove a pin without deleting the Codex chat, clean up completed pins, or undo a cleanup.
+- A separate inbox for approval/input waits, unread replies and unacknowledged errors. Running tasks remain visible alongside other counts in the menu bar.
+- Animated fairy states shared between menu and panel; rotating activity indicators; reduced-motion support.
+- Direct links to named Codex conversations. Initial prompts/attachment metadata are never used as titles. Merely switching Codex tabs is not detected; sending a new message is.
+- Wait duration measured from first detection, generic reasons derived from actual request types, no automatic approvals or replies.
+- “Read later” lowers a reply’s visual priority without marking it read in Codex; a new turn restores normal priority.
+- Category/sound preferences, 30-minute snooze, persistent deduplication and a 1.5-second grouping window for completion alerts. Read/resolved requests dismiss Mote’s delivered alerts.
+- Nonactivating custom alerts on the pointer display, primary display or a named connected display. macOS system notifications remain an option.
+- Login launch opt-in, single-instance lock, diagnostics, version display and manual GitHub source-update checks.
+- A generated dust-fairy application icon. No API key or model charges are added by Mote.
 
-## Run and build
+## Run
 
-Requires macOS 14+, Xcode command-line tools and an installed Codex Desktop app. The development build was compiled on Apple Silicon with Swift 6.4.2.
+Requires macOS 14+, Xcode command-line tools and Codex Desktop. Built locally on Apple Silicon with Swift 6.4.2.
 
 ```sh
 ./build.sh
 open Mote.app
 ```
 
-Click the dust icon in the menu bar. Click the notification permission control to enable macOS notifications, then Test Notification. If permission was denied, that control opens macOS notification settings. Focus modes and macOS settings can suppress delivery.
+Keep the app in a stable location before enabling launch at login. macOS may require approval for the login item. Settings include a test alert and notification permission controls. Custom panels are independent of Focus and Notification Center; select macOS system notifications to use those OS delivery controls/history. Mote’s alert settings do not affect Codex’s own notifications.
 
-The build is ad-hoc signed for local development, not Developer ID signed or notarized. No login item is installed.
+Completion groups open the Mote inbox, individual alerts open the conversation. Custom alerts close after ten seconds and are queued (up to twenty groups). They do not steal keyboard focus. A disconnected named display falls back to the pointer display. Queue placement is chosen when shown, not continuously moved with the pointer.
 
-## Detection and limitations
+## Privacy and compatibility
 
-The app reads `$CODEX_HOME` (default `~/.codex`) SQLite databases read-only every three seconds. It examines recent unarchived root threads plus older persisted in-progress roots. In-progress records older than six hours are marked unknown because abandoned records may survive an exited process.
+Mote reads local `$CODEX_HOME` (default `~/.codex`) databases read-only. It loads recent unarchived root threads and older active/pinned threads. It never edits Codex databases, reads authentication tokens, sends tool decisions or sends messages to the model. Its preferences, pin list and notification ledger stay locally in UserDefaults.
 
-For waiting states it connects to Codex Desktop's existing, current-user-owned Unix IPC socket and subscribes to thread snapshots and patches. It reads `threadRuntimeStatus.activeFlags` (`waitingOnApproval`, `waitingOnUserInput`) and request IDs. It never sends an approval decision or modifies the conversation. Full incoming frames are transiently decoded in memory; only runtime flags, unread state, revision and request IDs are retained. No conversation snapshot is logged or saved.
+Live waiting/turn information uses the existing current-user-owned Codex Desktop IPC socket. This private version-dependent protocol is not a stable public integration contract. Unsupported versions show a diagnostic and fall back to database monitoring. A connection/revision gap clears stale live waiting states and requests fresh snapshots. Incoming snapshots are decoded transiently; only IDs, state flags, generic request-type labels and turn start/status metadata are retained. Message/tool bodies are not saved or logged.
 
-This desktop IPC protocol is private and version-dependent (currently stream version 11). It is not a stable public integration contract. Unsupported messages are ignored; a revision gap or dropped connection clears live waits and reconnects for fresh snapshots. While disconnected, ordinary database monitoring continues. CLI-only sessions without a desktop owner cannot provide live waiting status through this adapter. Free-form questions without a runtime waiting flag are not guessed from message text. Hook installation or trust bypass is not required.
+Read receipts matching the published turn override stale unread stream flags. Unknown receipts fall back to live unread flags. In-progress records older than six hours are uncertain until live state confirms them. CLI-only sessions without a desktop owner cannot provide live wait status through this adapter. Free-form questions without a runtime wait flag are not guessed from text.
 
-Wait notifications are deduplicated persistently by thread, turn, waiting kind and available request IDs. Startup snapshots intentionally notify about existing live waits, whereas old completed tasks do not trigger startup notifications. Short turns are detected through live terminal metadata and new completed turns between polls. Disconnected periods may still miss intermediate turns superseded before the next poll. Notification titles include task titles and can be shown on the lock screen.
+Notifications are deduplicated by thread, turn, kind and available request IDs for up to seven days, bounded at 2,000 entries. Repeated waits lacking IDs cannot always be distinguished. Startup snapshots do not replay historical completions. Disconnected periods may miss superseded intermediate turns. Mute/snooze does not queue a replay. Task titles may appear on the lock screen in system-alert mode.
 
-Task links use `codex://threads/<id>` and depend on the installed desktop app supporting that route.
+Mote makes no network requests for task monitoring. Clicking **Update check** contacts only the public GitHub commit API and compares the app’s embedded source revision; no conversation data is sent. This is a source update check, not an automatic signed-app updater.
 
 ## Verification
 
 ```sh
 python3 Tests/check_reader.py
 Tests/check_live_state.sh
+Tests/check_alert_placement.sh
+Tests/check_monitor_flow.sh
 ./Mote.app/Contents/MacOS/Mote --diagnose
 ```
 
-Reader tests use isolated temporary databases and check running, completion, failure, interruption, stale records, latest-turn selection, unread-to-read receipt updates and ignoring receipts for a different published turn. Live reducer tests cover approval/answer transitions, clearing waits on resume, revision gaps, fresh snapshots and idle precedence. The running app has connected to the installed desktop IPC and received actual snapshots. The inbox and settings have been inspected in the native UI, and a second process was verified to exit immediately. Real end-to-end user approvals/questions followed by a visible macOS banner still need verification; fixture tests are not proof of that flow.
+Reader fixtures cover recent/older active tasks, turn selection, titles, read receipts and stale state. Live-state tests cover waiting, request changes, revision gaps, short completions, persistence and parallel pin logic. Monitor-flow tests execute the actual Monitor code with isolated preferences and an injected notification sink: approval → question → resume → completion → read, notification grouping, reconnect dedup, cleanup/undo, deferred replies and snooze. They do not modify real conversations or preferences and are not proof of real OS notification delivery.
 
-The diagnostic command prints only task IDs and statuses. Source changes preserve the original Codex data and settings.
+Screen placement tests include left/negative-coordinate and vertically arranged monitors. Native UI inspection verifies layout and settings. Actual multi-monitor alerts, Focus/lock-screen behavior and vendor changes should still be checked on the intended machines.
 
-## Work inbox and preferences
+## Signing and distribution
 
-The default inbox separates approval/input waits, unread replies and errors from running tasks. A persistent Working Conversations list sits above the inbox regardless of completion/read state. Multiple conversations stay in that list together; new messages add/reorder rather than replace them. Each row has a remove control that only changes Mote, never deletes the Codex chat. The list automatically follows newly started conversation turns, including a new chat or a new message in an existing chat, using turn start time and turn ID rather than background update time. It also changes when a row successfully opens Codex, or via the row context menu. Completed turns keep their pin; old snapshots do not replace the list. All listed conversations are retained outside the recent-20 window. Merely switching Codex tabs without sending a message is not tracked; new turns are detected through live metadata or the three-second database poll. All recent tasks are available under All. Running rows show a rotating olive activity ring and three cycling dots; these indicate activity, not a measured completion percentage, and respect Reduce Motion. Clicking a row opens that conversation immediately; errors can be acknowledged through its context menu without modifying Codex. Wait elapsed time starts when Mote first detects that request, persists locally and is explicitly labeled as detection-based.
+Version: **0.2.0**. Default local builds are ad-hoc signed and are not notarized. Icon generation is reproducible with `Tools/GenerateIcon.swift` and `iconutil`.
 
-Settings expose separate attention, completion and error alerts, attention/completion sounds, a persistent 30-minute snooze and opt-in login launch via SMAppService. Completion sound defaults to off. Login registration can require macOS approval; keep the app at a stable location before enabling it. No login registration is performed by default. An advisory process lock prevents concurrent Mote instances.
+For a Developer ID-signed, notarized archive, configure a **Developer ID Application** certificate/private key and an existing `notarytool` Keychain profile, then run:
 
-Recent history is limited to 20 rows, but persisted in-progress root threads outside that window are also monitored, including stale rows whose live state can subsequently confirm activity. Nonrecent finished threads do not accumulate forever. Successful terminal transitions are detected both by polling (including a new turn already completed between polls) and live canonical turn metadata. Live metadata retains turn ID, status and start time only, never text. Startup/reconnect snapshots of historical completions are not re-notified.
+```sh
+MOTE_SIGN_IDENTITY='Developer ID Application: Your Name (TEAMID)' \
+MOTE_NOTARY_PROFILE='your-profile' Tools/release.sh
+```
 
-Notification IDs are deduplicated across live updates, polls and app restarts using a local ledger capped at 2,000 entries, retaining up to seven days. Distinct request IDs within one turn can notify separately. A transport without request IDs cannot reliably distinguish consecutive identical waits within the same turn. Muted/snoozed/disabled events are not queued for replay. No automatic approvals or replies are introduced.
-
-Both menu and panel use the same animated monochrome fairy frames: working, approval, question, unread envelope, error and idle. Reduce Motion uses still frames. The inbox is a local companion, not a second task execution engine.
-
-## Multiple displays
-
-Mote defaults to its own non-activating alert panel on the display containing the mouse when each queued alert is shown. Settings can select the primary monitor instead, or macOS system notifications. The custom alert avoids the menu bar/notch, closes after ten seconds, queues up to twenty events and opens the corresponding chat when clicked. It does not steal keyboard focus. Its position is chosen when shown, not continuously moved with the pointer.
-
-Custom panels are separate from macOS Notification Center and Focus settings; use macOS system notifications if you want those delivery controls or Notification Center history. Existing Mote snooze, category and sound preferences still apply. System alerts are not also sent in custom-panel mode, preventing duplicate banners. This changes Mote alerts only, not notifications sent by Codex itself.
-
-`Tests/check_alert_placement.sh` checks internal, negative-coordinate external and vertically arranged screen frames. Actual monitor choice depends on connected screens and pointer location.
+The script enables hardened runtime signing, submits the zip, staples/validates the ticket and checks Gatekeeper before producing `release/Mote-0.2.0.zip`. No credentials are checked into this repository. A development certificate alone cannot produce this external-distribution build. Public releases are not published automatically.

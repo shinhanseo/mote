@@ -13,5 +13,7 @@ jobs:
         run: Tests/check_live_state.sh
       - name: Test multi-display alert placement
         run: Tests/check_alert_placement.sh
+      - name: Test monitor lifecycle
+        run: Tests/check_monitor_flow.sh
       - name: Verify signature
         run: codesign --verify --strict Mote.app

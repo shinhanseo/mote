@@ -4,22 +4,31 @@ import SwiftUI
 @MainActor final class DisplayAlerts {
     private var panel:NSPanel?
     private var hideTask:Task<Void,Never>?
-    private var pending:[(title:String,body:String,open:()->Void)]=[]
+    private var pending:[(title:String,body:String,threads:Set<String>,open:()->Void)]=[]
+    private var currentThreads=Set<String>()
     private var mode="cursor"
-    func show(title:String,body:String,mode:String,sound:Bool,open:@escaping()->Void){
+    func show(title:String,body:String,mode:String,sound:Bool,threads:Set<String>=[],open:@escaping()->Void){
         self.mode=mode
-        pending.append((title,body,open))
+        pending.append((title,body,threads,open))
         if pending.count>20{pending.removeFirst(pending.count-20)}
         if sound{NSSound(named:"Glass")?.play()}
         if panel?.isVisible != true{next()}
     }
+    func cancel(threads:Set<String>){
+        pending.removeAll{!$0.threads.isDisjoint(with:threads)}
+        if !currentThreads.isDisjoint(with:threads){next()}
+    }
     private func next(){
         hideTask?.cancel()
-        panel?.orderOut(nil)
+        panel?.orderOut(nil);currentThreads=[]
         guard !pending.isEmpty else{return}
-        let alert=pending.removeFirst()
+        let alert=pending.removeFirst();currentThreads=alert.threads
         let point=NSEvent.mouseLocation
-        guard let screen=(mode=="main" ? NSScreen.screens.first:NSScreen.screens.first(where:{$0.frame.contains(point)})) ?? NSScreen.main else{return}
+        let fixed=mode.hasPrefix("display:") ? NSScreen.screens.first{screen in
+            let id=(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue
+            return "display:"+(id ?? "")==mode
+        }:nil
+        guard let screen=fixed ?? (mode=="main" ? NSScreen.screens.first:NSScreen.screens.first(where:{$0.frame.contains(point)})) ?? NSScreen.main else{return}
         let frame=AlertPlacement.frame(in:screen.visibleFrame,safeTop:screen.frame.maxY-screen.safeAreaInsets.top)
         let p=NSPanel(contentRect:frame,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         p.isOpaque=false;p.backgroundColor = .clear;p.hasShadow=true;p.level = .statusBar
