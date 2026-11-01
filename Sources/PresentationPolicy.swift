@@ -1,6 +1,7 @@
 import Foundation
 
 struct PresentationPolicy {
+    static func resolvedGroup(_ group:Set<String>,by resolved:Set<String>)->Bool {!group.isEmpty && group.isSubset(of:resolved)}
     static func summary(running:Int,waiting:Int,unread:Int,errors:Int)->String {
         var parts=[String]()
         if running>0{parts.append("진행 \(running)")}

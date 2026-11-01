@@ -50,3 +50,7 @@ check(try! JSONDecoder().decode([String].self,from:saved)==working,"multiple con
 working=WorkingConversations.removing("chat-a",from:working)
 check(working==["chat-b"],"removing one does not remove others")
 print("PASS: parallel conversation retention, deduplication, persistence and individual removal")
+
+check(!PresentationPolicy.resolvedGroup(["a","b"],by:["a"]),"reading one reply must not dismiss a group containing another unread reply")
+check(PresentationPolicy.resolvedGroup(["a","b"],by:["a","b"]),"fully read notification group is dismissed")
+print("PASS: grouped notification stays until all replies are resolved")

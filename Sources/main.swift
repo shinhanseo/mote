@@ -173,7 +173,7 @@ struct LocalReader {
         }.map(\.id))
         completionQueue.removeAll{notice in jobs.contains{job in job.id==notice.id && ((job.status=="completed" && job.readReceipt==false) || job.turn != notice.turn)}}
         displayAlerts.cancel(threads:resolved)
-        let identifiers=alertThreads.filter{!$0.value.isDisjoint(with:resolved)}.map(\.key)
+        let identifiers=alertThreads.filter{PresentationPolicy.resolvedGroup($0.value,by:resolved)}.map(\.key)
         for id in identifiers{alertThreads.removeValue(forKey:id)}
         if !identifiers.isEmpty{UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:identifiers);UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:identifiers)}
         if alertDisplay=="system",Date().timeIntervalSince(lastSystemReconcile)>10{
@@ -181,7 +181,7 @@ struct LocalReader {
             UNUserNotificationCenter.current().getDeliveredNotifications{notifications in
                 let remove=notifications.filter{note in
                     let ids=Set(note.request.content.userInfo["threadIDs"] as? [String] ?? [])
-                    return !ids.isEmpty && !ids.isDisjoint(with:resolved)
+                    return PresentationPolicy.resolvedGroup(ids,by:resolved)
                 }.map{$0.request.identifier}
                 if !remove.isEmpty{UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:remove)}
             }

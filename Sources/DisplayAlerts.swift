@@ -15,8 +15,8 @@ import SwiftUI
         if panel?.isVisible != true{next()}
     }
     func cancel(threads:Set<String>){
-        pending.removeAll{!$0.threads.isDisjoint(with:threads)}
-        if !currentThreads.isDisjoint(with:threads){next()}
+        pending.removeAll{PresentationPolicy.resolvedGroup($0.threads,by:threads)}
+        if PresentationPolicy.resolvedGroup(currentThreads,by:threads){next()}
     }
     private func next(){
         hideTask?.cancel()
