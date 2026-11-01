@@ -61,3 +61,11 @@ Recent history is limited to 20 rows, but persisted in-progress root threads out
 Notification IDs are deduplicated across live updates, polls and app restarts using a local ledger capped at 2,000 entries, retaining up to seven days. Distinct request IDs within one turn can notify separately. A transport without request IDs cannot reliably distinguish consecutive identical waits within the same turn. Muted/snoozed/disabled events are not queued for replay. No automatic approvals or replies are introduced.
 
 Both menu and panel use the same animated monochrome fairy frames: working, approval, question, unread envelope, error and idle. Reduce Motion uses still frames. The inbox is a local companion, not a second task execution engine.
+
+## Multiple displays
+
+Mote defaults to its own non-activating alert panel on the display containing the mouse when each queued alert is shown. Settings can select the primary monitor instead, or macOS system notifications. The custom alert avoids the menu bar/notch, closes after ten seconds, queues up to twenty events and opens the corresponding chat when clicked. It does not steal keyboard focus. Its position is chosen when shown, not continuously moved with the pointer.
+
+Custom panels are separate from macOS Notification Center and Focus settings; use macOS system notifications if you want those delivery controls or Notification Center history. Existing Mote snooze, category and sound preferences still apply. System alerts are not also sent in custom-panel mode, preventing duplicate banners. This changes Mote alerts only, not notifications sent by Codex itself.
+
+`Tests/check_alert_placement.sh` checks internal, negative-coordinate external and vertically arranged screen frames. Actual monitor choice depends on connected screens and pointer location.

@@ -55,6 +55,8 @@ struct LocalReader {
     @Published var notificationStatus="알림 권한 확인 중"; @Published var muted=false
     @Published var liveConnected=false
     @Published var showSettings=false
+    @Published var alertDisplay=UserDefaults.standard.string(forKey:"alertDisplay") ?? "cursor" {didSet{UserDefaults.standard.set(alertDisplay,forKey:"alertDisplay")}}
+    let displayAlerts=DisplayAlerts()
     @Published var pauseUntil:Date? = UserDefaults.standard.object(forKey:"pauseUntil") as? Date
     @Published var completionAlerts=UserDefaults.standard.object(forKey:"completionAlerts") as? Bool ?? true {didSet{UserDefaults.standard.set(completionAlerts,forKey:"completionAlerts")}}
     @Published var attentionAlerts=UserDefaults.standard.object(forKey:"attentionAlerts") as? Bool ?? true {didSet{UserDefaults.standard.set(attentionAlerts,forKey:"attentionAlerts")}}
@@ -114,6 +116,10 @@ struct LocalReader {
         let content=UNMutableNotificationContent()
         content.title=test ? "모트 · 테스트 알림" : ["approval":"모트 · 승인이 필요해요","answer":"모트 · 답변을 기다리고 있어요","failed":"모트 · 작업에 문제가 생겼어요"][job.status] ?? "모트 · 작업이 끝났어요"
         content.body=String(job.title.prefix(100));if test || (attention ? attentionSound:completionSound){content.sound = .default};content.userInfo=["threadID":job.id]
+        if alertDisplay != "system" {
+            displayAlerts.show(title:content.title,body:content.body,mode:alertDisplay,sound:test || (attention ? attentionSound:completionSound)){[weak self] in if job.id != "test"{self?.open(job.id)}}
+            return
+        }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:key,content:content,trigger:nil)){error in
             if error != nil && !test {Task{@MainActor in self.ledger=NotificationLedger(sent:self.ledger.sent.filter{$0.key != key});UserDefaults.standard.set(self.ledger.sent,forKey:"notificationLedger")}}
         }
@@ -277,6 +283,9 @@ struct Panel:View {
     var settings:some View {
         VStack(alignment:.leading,spacing:16){
             Text("알림과 실행").font(.title3.weight(.semibold))
+            Picker("알림 표시 화면",selection:$model.alertDisplay){Text("마우스가 있는 화면").tag("cursor");Text("주 모니터").tag("main");Text("macOS 기본 알림").tag("system")}
+            Text(model.alertDisplay == "system" ? "macOS 알림 설정과 집중 모드를 따릅니다.":"모트 알림은 집중 모드와 별도로 표시돼요. 입력 중인 창의 포커스는 유지돼요.").font(.caption).foregroundStyle(.secondary)
+            Button("이 화면 설정으로 테스트 알림"){model.notify(Job(id:"test",title:"모트가 작업 화면으로 찾아왔어요",project:"",status:"completed",turn:UUID().uuidString),test:true)}
             Toggle("로그인 시 모트 실행",isOn:Binding(get:{model.loginEnabled},set:{model.setLogin($0)}))
             Divider()
             Toggle("승인·질문 알림",isOn:$model.attentionAlerts)
