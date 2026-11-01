@@ -25,12 +25,13 @@ import AppKit
     private func draw(){
         if frames[state]==nil{frames[state]=(0..<4).map{Self.image(state:state,frame:$0)}}
         button?.image=frames[state]?[frame]
-        button?.toolTip=["inProgress":"모트 · 작업 중","approval":"모트 · 승인 대기","answer":"모트 · 답변 대기","idle":"모트 · 쉬는 중"][state]
+        button?.toolTip=["inProgress":"모트 · 작업 중","approval":"모트 · 승인 대기","answer":"모트 · 답변 대기","unread":"모트 · 미확인 답변이 있어요","idle":"모트 · 쉬는 중"][state]
         button?.setAccessibilityLabel(button?.toolTip ?? "모트")
     }
     static func image(state:String,frame:Int)->NSImage {
         let image=NSImage(size:NSSize(width:28,height:22),flipped:false){_ in
             let waiting=["approval","answer"].contains(state)
+            let unread=state == "unread"
             let working=state == "inProgress"
             let bob:CGFloat=working ? [0,1,0,-1][frame]:0
             let center=NSPoint(x:13,y:11+bob)
@@ -45,6 +46,13 @@ import AppKit
                 stroke(NSPoint(x:6,y:9+bob),NSPoint(x:3,y:5+tap))
                 stroke(NSPoint(x:20,y:9+bob),NSPoint(x:24,y:6-tap))
                 NSBezierPath(roundedRect:NSRect(x:3,y:2,width:22,height:1.4),xRadius:0.7,yRadius:0.7).fill()
+            }else if unread{
+                // Envelope silhouette and a gentle bounce distinguish a delivered reply from an approval.
+                let lift:CGFloat=[0,1,2,1][frame]
+                NSBezierPath(roundedRect:NSRect(x:18,y:2+lift,width:9,height:6),xRadius:1,yRadius:1).fill()
+                NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current?.compositingOperation = .clear
+                stroke(NSPoint(x:19,y:7+lift),NSPoint(x:22.5,y:4.5+lift));stroke(NSPoint(x:22.5,y:4.5+lift),NSPoint(x:26,y:7+lift))
+                NSGraphicsContext.restoreGraphicsState()
             }else if waiting{
                 let wave:CGFloat=[0,3,1,-1][frame]
                 stroke(NSPoint(x:19,y:12),NSPoint(x:24+wave/2,y:18+wave/2))

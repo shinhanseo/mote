@@ -6,6 +6,7 @@ struct LiveState {
     var runtime: [String:Any] = [:]
     var requestIDs: [String] = []
     var revision: Int = -1
+    var unread:Bool?
     var waiting: String? {
         guard runtime["type"] as? String == "active" else { return nil }
         let flags = runtime["activeFlags"] as? [String] ?? []
@@ -16,6 +17,7 @@ struct LiveState {
     mutating func apply(_ change:[String:Any]) -> Bool {
         guard let rev=change["revision"] as? Int else { return false }
         if change["type"] as? String == "snapshot", let state=change["conversationState"] as? [String:Any] {
+            unread=state["hasUnreadTurn"] as? Bool
             runtime=state["threadRuntimeStatus"] as? [String:Any] ?? [:]
             requestIDs=(state["requests"] as? [[String:Any]] ?? []).compactMap { request in
                 (request["id"] ?? request["requestId"]).map { String(describing:$0) }
@@ -26,6 +28,7 @@ struct LiveState {
         for patch in patches {
             guard let path=patch["path"] as? [Any],let first=path.first as? String else {continue}
             let op=patch["op"] as? String ?? ""
+            if first == "hasUnreadTurn" {unread=patch["value"] as? Bool}
             if first == "threadRuntimeStatus" {
                 runtime=Self.edit(runtime,path:Array(path.dropFirst()),value:patch["value"] ?? NSNull(),remove:op=="remove") as? [String:Any] ?? [:]
             }

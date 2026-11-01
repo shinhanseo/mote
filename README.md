@@ -8,6 +8,7 @@ A local-first macOS menu bar companion for Codex Desktop. A little dust fairy ke
 - Native frosted-glass panel, muted olive accents, notch-aware placement and Escape to dismiss.
 - Recent Codex tasks, running/completed/failed/interrupted states and links back to their conversations.
 - Live approval and answer waiting detection: raised hand, larger eyes, waiting count in the menu bar, waiting tasks first.
+- Unread completed replies remain visible as a menu-bar reply count, a moving envelope and a dot in the task list. The desktop `hasUnreadTurn` flag clears when Codex reports the reply read; no guess based on merely opening Mote. Approval/input waits take priority.
 - Notifications for newly observed waits and observed running-to-completed/failed transitions; notification mute and test controls.
 - Read-only local integration. No API key, backend, telemetry, automatic approvals or replies.
 
@@ -28,7 +29,7 @@ The build is ad-hoc signed for local development, not Developer ID signed or not
 
 The app reads `$CODEX_HOME` (default `~/.codex`) SQLite databases read-only every three seconds. It examines the latest turn of the 20 most recently updated, unarchived root threads. In-progress records older than six hours are marked unknown because abandoned records may survive an exited process.
 
-For waiting states it connects to Codex Desktop's existing, current-user-owned Unix IPC socket and subscribes to thread snapshots and patches. It reads `threadRuntimeStatus.activeFlags` (`waitingOnApproval`, `waitingOnUserInput`) and request IDs. It never sends an approval decision or modifies the conversation. Full incoming frames are transiently decoded in memory; only runtime flags, revision and request IDs are retained. No conversation snapshot is logged or saved.
+For waiting states it connects to Codex Desktop's existing, current-user-owned Unix IPC socket and subscribes to thread snapshots and patches. It reads `threadRuntimeStatus.activeFlags` (`waitingOnApproval`, `waitingOnUserInput`) and request IDs. It never sends an approval decision or modifies the conversation. Full incoming frames are transiently decoded in memory; only runtime flags, unread state, revision and request IDs are retained. No conversation snapshot is logged or saved.
 
 This desktop IPC protocol is private and version-dependent (currently stream version 11). It is not a stable public integration contract. Unsupported messages are ignored; a revision gap or dropped connection clears live waits and reconnects for fresh snapshots. While disconnected, ordinary database monitoring continues. CLI-only sessions without a desktop owner cannot provide live waiting status through this adapter. Free-form questions without a runtime waiting flag are not guessed from message text. Hook installation or trust bypass is not required.
 

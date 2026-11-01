@@ -13,3 +13,8 @@ check(!state.apply(["type":"patches","baseRevision":1,"revision":5,"patches":[]]
 check(state.apply(["type":"snapshot","revision":9,"conversationState":["threadRuntimeStatus":["type":"idle","activeFlags":["waitingOnApproval"]]]]),"resnapshot")
 check(state.waiting==nil,"idle cannot retain wait")
 print("PASS: approval, answer, resume, stale revision rejection, fresh snapshot, idle precedence")
+check(state.apply(["type":"snapshot","revision":10,"conversationState":["threadRuntimeStatus":["type":"idle"],"hasUnreadTurn":true]]),"unread snapshot")
+check(state.unread==true,"completed unread remains visible")
+check(state.apply(["type":"patches","baseRevision":10,"revision":11,"patches":[["op":"replace","path":["hasUnreadTurn"],"value":false]]]),"read patch")
+check(state.unread==false,"reading in Codex clears unread")
+print("PASS: unread snapshot and Codex read receipt")

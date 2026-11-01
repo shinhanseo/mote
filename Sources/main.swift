@@ -5,8 +5,8 @@ import SQLite3
 
 struct Job: Identifiable, Equatable {
     var id: String; var title: String; var project: String; var status: String; var turn: String
-    var label: String { switch status {case "approval": return "승인 대기"; case "answer": return "답변 대기"; case "inProgress": return "작업 중"; case "completed": return "완료"; case "failed": return "오류"; case "interrupted": return "중단됨"; default: return "확인 필요"} }
-    var symbol: String { switch status {case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
+    var label: String { switch status {case "unread": return "답변 도착 · 미확인"; case "approval": return "승인 대기"; case "answer": return "답변 대기"; case "inProgress": return "작업 중"; case "completed": return "완료"; case "failed": return "오류"; case "interrupted": return "중단됨"; default: return "확인 필요"} }
+    var symbol: String { switch status {case "unread": return "envelope.badge"; case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
 }
 struct LocalReader {
     static func query(_ path: String, _ sql: String) throws -> [[String]] {
@@ -45,7 +45,8 @@ struct LocalReader {
     @Published var liveConnected=false
     let live=LiveObserver();var rawJobs=[Job]();var liveStates=[String:LiveState]();var waitSignatures=[String:String]()
     var waiting:Int {jobs.filter{["approval","answer"].contains($0.status)}.count}
-    var fairyStatus:String {waiting>0 ? (jobs.first{["approval","answer"].contains($0.status)}?.status ?? "answer") : active>0 ? "inProgress":"idle"}
+    var unread:Int {jobs.filter{$0.status=="unread"}.count}
+    var fairyStatus:String {waiting>0 ? (jobs.first{["approval","answer"].contains($0.status)}?.status ?? "answer") : unread>0 ? "unread" : active>0 ? "inProgress":"idle"}
     var baseline=false; var previous=[String:Job](); var timer: Timer?; var reading=false
     var onUpdate: (() -> Void)?
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
@@ -87,9 +88,9 @@ struct LocalReader {
         reconcile();onUpdate?()
     }
     func reconcile(){
-        jobs=rawJobs.map { raw in var job=raw;if let kind=liveStates[raw.id]?.waiting {job.status=kind};return job }.sorted { a,b in
+        jobs=rawJobs.map { raw in var job=raw;if let kind=liveStates[raw.id]?.waiting {job.status=kind}else if raw.status=="completed",liveStates[raw.id]?.unread == true {job.status="unread"};return job }.sorted { a,b in
             let aw=["approval","answer"].contains(a.status),bw=["approval","answer"].contains(b.status)
-            return aw && !bw
+            if aw != bw{return aw};return a.status=="unread" && b.status != "unread"
         }
     }
     func open(_ id:String) { if let url=URL(string:"codex://threads/"+id) { NSWorkspace.shared.open(url) } }
@@ -98,7 +99,7 @@ struct LocalReader {
 struct Dust: View {
     var status:String
     var working:Bool {status=="inProgress"}
-    var waiting:Bool {["approval","answer"].contains(status)}
+    var waiting:Bool {["approval","answer","unread"].contains(status)}
     var body: some View {
         TimelineView(.animation(minimumInterval:0.18,paused: !working && !waiting)) { context in
             let phase=(working || waiting) ? sin(context.date.timeIntervalSince1970*(waiting ? 3:6)) : 0
@@ -129,11 +130,11 @@ struct Panel: View {
     var body: some View {
         VStack(alignment:.leading,spacing:0) {
             HStack {Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));Text(model.error != nil ? "연결 확인 필요" : model.liveConnected ? "● 실시간 감지":"로컬 기록 · 재연결 중").font(.system(size:11)).foregroundStyle(.secondary);Spacer();Button{model.muted.toggle()}label:{Image(systemName:model.muted ? "bell.slash":"bell")}.buttonStyle(.plain).help("알림 일시 중지")}.padding(.bottom,18)
-            HStack {VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.system(size:12)).foregroundStyle(.secondary);Text(model.waiting > 0 ? "\(model.waiting)개 작업이\n응답을 기다려요." : model.active > 0 ? "\(model.active)개 작업이\n진행 중이에요." : "지금은 쉬고 있어요.").font(.system(size:25,weight:.semibold)).tracking(-0.7).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:105,height:105)}.padding(.bottom,15)
+            HStack {VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.system(size:12)).foregroundStyle(.secondary);Text(model.unread>0 && model.waiting==0 ? "미확인 답변이\n\(model.unread)개 있어요." : model.waiting > 0 ? "\(model.waiting)개 작업이\n응답을 기다려요." : model.active > 0 ? "\(model.active)개 작업이\n진행 중이에요." : "지금은 쉬고 있어요.").font(.system(size:25,weight:.semibold)).tracking(-0.7).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:105,height:105)}.padding(.bottom,15)
             if let error=model.error {Text(error).font(.callout).foregroundStyle(.orange).padding(.bottom,10)}
             HStack {Button("최근 작업"){model.all=false}.tint(model.all ? .secondary:Palette.olive);Button("전체 \(model.jobs.count)"){model.all=true}.tint(model.all ? Palette.olive:.secondary);Spacer();Text("3초마다 확인").font(.system(size:11)).foregroundStyle(.secondary)}.buttonStyle(.borderless).padding(.bottom,12)
-            ScrollView {VStack(spacing:3){ForEach(Array(model.jobs.prefix(model.all ? 20:5))){job in Button {model.selected=job.id}label:{HStack(spacing:11){Image(systemName:job.symbol).frame(width:30,height:30).background(job.status == "failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.12),in:RoundedRectangle(cornerRadius:9));VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);Text("\(job.project) · \(job.label)").font(.system(size:11)).foregroundStyle(.secondary)};Spacer()}.padding(10).frame(maxWidth:.infinity,alignment:.leading).background(model.chosen?.id == job.id ? Color.primary.opacity(0.055):.clear,in:RoundedRectangle(cornerRadius:11))}.buttonStyle(.plain)}}}.frame(height:190)
-            if let job=model.chosen {Divider().padding(.vertical,15);Text(job.label).font(.system(size:12)).foregroundStyle(.secondary);Text(job.title).font(.system(size:17,weight:.semibold)).lineLimit(3).fixedSize(horizontal:false,vertical:true).padding(.top,5);Text(job.status == "approval" ? "Codex에서 요청한 내용을 확인하고 승인해 주세요." : job.status == "answer" ? "Codex에 답변하면 요정이 다시 작업 상태로 돌아가요." : model.liveConnected ? "승인과 질문 대기를 실시간으로 확인하고 있어요." : "실시간 연결을 기다리고 있어요. 기본 작업 상태는 계속 확인해요.").font(.system(size:12)).foregroundStyle(.secondary).padding(.top,8);Button {model.open(job.id)}label:{HStack {Text("Codex에서 작업 보기");Image(systemName:"arrow.up.right")}.frame(maxWidth:.infinity).padding(.vertical,7)}.buttonStyle(.borderedProminent).tint(Palette.olive).padding(.top,14)}
+            ScrollView {VStack(spacing:3){ForEach(Array(model.jobs.prefix(model.all ? 20:5))){job in Button {model.selected=job.id}label:{HStack(spacing:11){Image(systemName:job.symbol).frame(width:30,height:30).background(job.status == "failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.12),in:RoundedRectangle(cornerRadius:9));VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);Text("\(job.project) · \(job.label)").font(.system(size:11)).foregroundStyle(.secondary)};Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7).accessibilityLabel("미확인 답변")}}.padding(10).frame(maxWidth:.infinity,alignment:.leading).background(model.chosen?.id == job.id ? Color.primary.opacity(0.055):.clear,in:RoundedRectangle(cornerRadius:11))}.buttonStyle(.plain)}}}.frame(height:190)
+            if let job=model.chosen {Divider().padding(.vertical,15);Text(job.label).font(.system(size:12)).foregroundStyle(.secondary);Text(job.title).font(.system(size:17,weight:.semibold)).lineLimit(3).fixedSize(horizontal:false,vertical:true).padding(.top,5);Text(job.status == "unread" ? "답변이 도착했어요. Codex에서 읽으면 미확인 표시가 사라져요." : job.status == "approval" ? "Codex에서 요청한 내용을 확인하고 승인해 주세요." : job.status == "answer" ? "Codex에 답변하면 요정이 다시 작업 상태로 돌아가요." : model.liveConnected ? "승인과 질문 대기를 실시간으로 확인하고 있어요." : "실시간 연결을 기다리고 있어요. 기본 작업 상태는 계속 확인해요.").font(.system(size:12)).foregroundStyle(.secondary).padding(.top,8);Button {model.open(job.id)}label:{HStack {Text("Codex에서 작업 보기");Image(systemName:"arrow.up.right")}.frame(maxWidth:.infinity).padding(.vertical,7)}.buttonStyle(.borderedProminent).tint(Palette.olive).padding(.top,14)}
             Divider().padding(.vertical,14)
             HStack {Button(model.notificationStatus){model.requestNotifications()};Spacer();Button("테스트 알림"){model.notify(Job(id:"test",title:"모트 알림이 정상 작동해요",project:"",status:"completed",turn:UUID().uuidString))};Menu {Button("새로고침"){model.refresh()};Button("종료"){NSApp.terminate(nil)}}label:{Image(systemName:"ellipsis")}}.font(.system(size:11)).buttonStyle(.borderless)
         }.padding(23).frame(width:440).tint(Palette.olive)
@@ -152,7 +153,7 @@ struct Panel: View {
         panel.isOpaque=false;panel.backgroundColor = .clear;panel.hasShadow=true;panel.level = .floating
         panel.isMovableByWindowBackground=true;panel.hidesOnDeactivate=false
         panel.standardWindowButton(.closeButton)?.isHidden=true;panel.standardWindowButton(.miniaturizeButton)?.isHidden=true;panel.standardWindowButton(.zoomButton)?.isHidden=true
-        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : self.monitor.waiting>0 ? " ! \(self.monitor.waiting)" : self.monitor.active>0 ? " \(self.monitor.active)":""}
+        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : self.monitor.waiting>0 ? " ! \(self.monitor.waiting)" : self.monitor.unread>0 ? " 답변 \(self.monitor.unread)" : self.monitor.active>0 ? " \(self.monitor.active)":""}
         monitor.start();toggle();fputs("Mote panel ready\n",stderr)
     }
     @objc func toggle(){
