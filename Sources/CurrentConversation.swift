@@ -10,3 +10,8 @@ struct CurrentConversationPolicy {
         started=startedAt;turnID=turn;return id
     }
 }
+
+struct WorkingConversations {
+    static func adding(_ id:String,to ids:[String])->[String] {[id]+ids.filter{$0 != id}}
+    static func removing(_ id:String,from ids:[String])->[String] {ids.filter{$0 != id}}
+}

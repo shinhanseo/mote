@@ -22,7 +22,7 @@ struct LocalReader {
             rows.append((0..<sqlite3_column_count(stmt)).map { i in sqlite3_column_text(stmt,i).map { String(cString:$0) } ?? "" })
         }; return rows
     }
-    static func read(currentID:String?=nil) throws -> [Job] {
+    static func read(currentIDs:Set<String>=[]) throws -> [Job] {
         let home = ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory()+"/.codex"
         let files = try FileManager.default.contentsOfDirectory(atPath:home)
         guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw NSError(domain:"Codex 기록을 찾지 못했어요",code:4) }
@@ -43,7 +43,7 @@ struct LocalReader {
                 if Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
             }
             let receipt:Bool?=receipts[row[0]].flatMap{r in r[2] == t?[1] ? r[1] == "1" : nil}
-            guard index<20 || t?[2]=="inProgress" || row[0]==currentID else{return nil}
+            guard index<20 || t?[2]=="inProgress" || currentIDs.contains(row[0]) else{return nil}
             return Job(id:row[0],title:row[1].isEmpty ? "제목 없는 대화" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipt,startedAt:{let v=Double(t?[3] ?? "0") ?? 0;return v>10_000_000_000 ? v/1000:v}())
         }
     }
@@ -51,6 +51,7 @@ struct LocalReader {
 
 @MainActor final class Monitor: ObservableObject {
     @Published var jobs=[Job](); @Published var error: String?; @Published var selected: String? = UserDefaults.standard.string(forKey:"currentConversation"); @Published var all=false
+    @Published var pinnedIDs:[String] = UserDefaults.standard.stringArray(forKey:"workingConversations") ?? UserDefaults.standard.string(forKey:"currentConversation").map{[$0]} ?? []
     @Published var notificationStatus="알림 권한 확인 중"; @Published var muted=false
     @Published var liveConnected=false
     @Published var showSettings=false
@@ -74,10 +75,11 @@ struct LocalReader {
     var paused:Bool {pauseUntil.map{$0>Date()} ?? false}
     var attentionJobs:[Job] {jobs.filter{["approval","answer","unread","failed"].contains($0.status)}}
     var runningJobs:[Job] {jobs.filter{$0.status=="inProgress"}}
-    var currentJob:Job? {jobs.first{$0.id==selected}}
-    var inboxJobs:[Job] {attentionJobs.filter{$0.id != currentJob?.id}}
-    var otherRunning:[Job] {runningJobs.filter{$0.id != currentJob?.id}}
-    func makeCurrent(_ id:String){selected=id;UserDefaults.standard.set(id,forKey:"currentConversation")}
+    var currentJobs:[Job] {let lookup=Dictionary(uniqueKeysWithValues:jobs.map{($0.id,$0)});return pinnedIDs.compactMap{lookup[$0]}}
+    var inboxJobs:[Job] {attentionJobs.filter{!pinnedIDs.contains($0.id)}}
+    var otherRunning:[Job] {runningJobs.filter{!pinnedIDs.contains($0.id)}}
+    func makeCurrent(_ id:String){selected=id;pinnedIDs=WorkingConversations.adding(id,to:pinnedIDs);UserDefaults.standard.set(pinnedIDs,forKey:"workingConversations");UserDefaults.standard.set(id,forKey:"currentConversation")}
+    func removeCurrent(_ id:String){pinnedIDs=WorkingConversations.removing(id,from:pinnedIDs);UserDefaults.standard.set(pinnedIDs,forKey:"workingConversations")}
     func pause(){pauseUntil=Date().addingTimeInterval(1800);UserDefaults.standard.set(pauseUntil,forKey:"pauseUntil")}
     func resume(){pauseUntil=nil;UserDefaults.standard.removeObject(forKey:"pauseUntil")}
     func setLogin(_ enabled:Bool){do{if enabled{try SMAppService.mainApp.register()}else{try SMAppService.mainApp.unregister()};loginEnabled=SMAppService.mainApp.status == .enabled;settingsError=SMAppService.mainApp.status == .requiresApproval ? "시스템 설정의 로그인 항목에서 허용해 주세요.":nil}catch{settingsError="자동 실행 설정 실패: \(error.localizedDescription)";loginEnabled=SMAppService.mainApp.status == .enabled}}
@@ -87,6 +89,7 @@ struct LocalReader {
     var waiting:Int {jobs.filter{["approval","answer"].contains($0.status)}.count}
     var unread:Int {jobs.filter{$0.status=="unread"}.count}
     var fairyStatus:String {waiting>0 ? (jobs.first{["approval","answer"].contains($0.status)}?.status ?? "answer") : unread>0 ? "unread" : jobs.contains{$0.status=="failed"} ? "failed" : active>0 ? "inProgress":"idle"}
+    let monitoringStarted=Date().timeIntervalSince1970
     var baseline=false; var previous=[String:Job](); var timer: Timer?; var reading=false
     var onUpdate: (() -> Void)?
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
@@ -117,16 +120,20 @@ struct LocalReader {
     }
     func refresh() {
         guard !reading else{return}; reading=true
-        let currentID=selected
-        Task.detached { let result = Result { try LocalReader.read(currentID:currentID) }; await self.apply(result) }
+        let currentIDs=Set(pinnedIDs)
+        Task.detached { let result = Result { try LocalReader.read(currentIDs:currentIDs) }; await self.apply(result) }
     }
     func apply(_ result:Result<[Job],Error>) {
         reading=false
         switch result {case .success(let found):
+            if baseline {for j in found where previous[j.id]?.turn != j.turn && j.startedAt>=monitoringStarted-3 {makeCurrent(j.id)}}
             if baseline { for j in found { if let old=previous[j.id], ["completed","failed"].contains(j.status), (j.turn != old.turn || old.status == "inProgress") { notify(j) } } }
             previous=Dictionary(uniqueKeysWithValues:found.map{($0.id,$0)});rawJobs=found
-            if let newest=found.max(by:{a,b in a.startedAt==b.startedAt ? a.turn<b.turn:a.startedAt<b.startedAt}){followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}
-            if selected==nil || !found.contains(where:{$0.id==selected}) {if let id=found.first?.id{makeCurrent(id)}};live.observe(found.map(\.id));reconcile();error=nil;baseline=true
+            if !baseline {for job in found.reversed() where job.status=="inProgress" && !pinnedIDs.contains(job.id){makeCurrent(job.id)}}
+            let chronological=found.sorted{a,b in a.startedAt==b.startedAt ? a.turn<b.turn:a.startedAt<b.startedAt}
+            if currentPolicy.started==0 {if let newest=chronological.last{followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}}
+            else{for job in chronological{followNewTurn(id:job.id,turn:job.turn,started:job.startedAt)}}
+            live.observe(found.map(\.id));reconcile();error=nil;baseline=true
         case .failure(let e): error=e.localizedDescription }
         onUpdate?()
     }
@@ -235,13 +242,15 @@ struct Panel:View {
             HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));Text(model.liveConnected ? "● 실시간 감지":"재연결 중").font(.caption).foregroundStyle(.secondary);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel("설정")}
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
-                if let current=model.currentJob {
-                    HStack{Label("현재 대화",systemImage:"pin.fill").font(.caption).foregroundStyle(.secondary);Spacer();Text("새 메시지를 보내면 자동 전환").font(.system(size:11)).foregroundStyle(.tertiary)}
-                    row(current)
+                if !model.currentJobs.isEmpty {
+                    HStack{Label("작업 중인 대화 \(model.currentJobs.count)",systemImage:"pin.fill").font(.caption).foregroundStyle(.secondary);Spacer();Text("완료 후에도 유지").font(.system(size:11)).foregroundStyle(.tertiary)}
+                    ScrollView{VStack(spacing:5){ForEach(model.currentJobs){current in
+                        HStack(spacing:5){row(current);Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help("작업 목록에서 빼기 · 대화는 삭제하지 않아요")}
+                    }}}.frame(height:min(235,CGFloat(model.currentJobs.count)*77))
                 }
                 HStack{Button("확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold);Button("전체 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular);Spacer()}.buttonStyle(.borderless)
                 ScrollView{VStack(alignment:.leading,spacing:4){
-                    if model.all{ForEach(model.jobs.filter{$0.id != model.currentJob?.id}){row($0)}}else{
+                    if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id)}){row($0)}}else{
                         if model.inboxJobs.isEmpty{Label("지금 확인할 작업은 없어요",systemImage:"checkmark.circle").foregroundStyle(.secondary).padding(.vertical,20)}
                         ForEach(model.inboxJobs){row($0)}
                         if !model.otherRunning.isEmpty{Text("진행 중 \(model.active)").font(.caption).foregroundStyle(.secondary).padding(.top,15);ForEach(model.otherRunning){row($0)}}
@@ -263,7 +272,7 @@ struct Panel:View {
                     if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}
                 };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.tertiary)
             }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
-        }.buttonStyle(.plain).help("Codex에서 \(job.title) 열기").contextMenu{Button("현재 대화로 고정"){model.makeCurrent(job.id)};if job.status=="failed"{Button("오류 확인했어요"){model.dismissError(job)}}}
+        }.buttonStyle(.plain).help("Codex에서 \(job.title) 열기").contextMenu{Button("작업 중인 대화에 추가"){model.makeCurrent(job.id)};if job.status=="failed"{Button("오류 확인했어요"){model.dismissError(job)}}}
     }
     var settings:some View {
         VStack(alignment:.leading,spacing:16){
