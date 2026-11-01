@@ -4,7 +4,7 @@ import UserNotifications
 import SQLite3
 
 struct Job: Identifiable, Equatable {
-    var id: String; var title: String; var project: String; var status: String; var turn: String
+    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil
     var label: String { switch status {case "unread": return "답변 도착 · 미확인"; case "approval": return "승인 대기"; case "answer": return "답변 대기"; case "inProgress": return "작업 중"; case "completed": return "완료"; case "failed": return "오류"; case "interrupted": return "중단됨"; default: return "확인 필요"} }
     var symbol: String { switch status {case "unread": return "envelope.badge"; case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
 }
@@ -26,6 +26,10 @@ struct LocalReader {
         guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw NSError(domain:"Codex 기록을 찾지 못했어요",code:4) }
         let threads = try query(home+"/"+state,"SELECT id, title, cwd FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC LIMIT 20")
         let turns = try query(home+"/thread_history_1.sqlite", "SELECT t.thread_id,t.turn_id,t.status,COALESCE(t.started_at,0) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
+        // Desktop read receipts are authoritative for the published turn. Stream snapshots
+        // can retain hasUnreadTurn after the desktop handles a separate read-state event.
+        let receiptRows=(try? query(home+"/"+state,"SELECT thread_id, first_unread_turn IS NOT NULL, COALESCE(last_published_turn,'') FROM thread_read_receipts")) ?? []
+        let receipts=Dictionary(receiptRows.map{($0[0],$0)},uniquingKeysWith:{_,b in b})
         let lookup = Dictionary(turns.map { ($0[0],$0) }, uniquingKeysWith: { a,b in b })
         return threads.map { row in
             let t = lookup[row[0]]; var status = t?[2] ?? "unknown"
@@ -34,7 +38,7 @@ struct LocalReader {
                 let seconds = stamp > 10_000_000_000 ? stamp/1000 : stamp
                 if Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
             }
-            return Job(id:row[0],title:row[1].isEmpty ? "이름 없는 작업" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "")
+            return Job(id:row[0],title:row[1].isEmpty ? "이름 없는 작업" : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipts[row[0]].flatMap{ receipt in receipt[2] == t?[1] ? receipt[1] == "1" : nil })
         }
     }
 }
@@ -88,7 +92,7 @@ struct LocalReader {
         reconcile();onUpdate?()
     }
     func reconcile(){
-        jobs=rawJobs.map { raw in var job=raw;if let kind=liveStates[raw.id]?.waiting {job.status=kind}else if raw.status=="completed",liveStates[raw.id]?.unread == true {job.status="unread"};return job }.sorted { a,b in
+        jobs=rawJobs.map { raw in var job=raw;if let kind=liveStates[raw.id]?.waiting {job.status=kind}else if raw.status=="completed",(raw.readReceipt ?? liveStates[raw.id]?.unread) == true {job.status="unread"};return job }.sorted { a,b in
             let aw=["approval","answer"].contains(a.status),bw=["approval","answer"].contains(b.status)
             if aw != bw{return aw};return a.status=="unread" && b.status != "unread"
         }
@@ -173,4 +177,4 @@ struct Panel: View {
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification,withCompletionHandler completion:@escaping(UNNotificationPresentationOptions)->Void){completion([.banner,.sound])}
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse,withCompletionHandler completion:@escaping()->Void){let id=response.notification.request.content.userInfo["threadID"] as? String;Task{@MainActor in if let id,id != "test"{self.monitor.open(id)}};completion()}
 }
-if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {print("\(job.id) \(job.status)")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.finishLaunching();delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification));withExtendedLifetime(delegate){app.run()}}}
+if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let app=NSApplication.shared;let delegate=AppDelegate();app.delegate=delegate;app.finishLaunching();delegate.applicationDidFinishLaunching(Notification(name:NSApplication.didFinishLaunchingNotification));withExtendedLifetime(delegate){app.run()}}}

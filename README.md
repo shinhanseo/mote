@@ -8,7 +8,7 @@ A local-first macOS menu bar companion for Codex Desktop. A little dust fairy ke
 - Native frosted-glass panel, muted olive accents, notch-aware placement and Escape to dismiss.
 - Recent Codex tasks, running/completed/failed/interrupted states and links back to their conversations.
 - Live approval and answer waiting detection: raised hand, larger eyes, waiting count in the menu bar, waiting tasks first.
-- Unread completed replies remain visible as a menu-bar reply count, a moving envelope and a dot in the task list. The desktop `hasUnreadTurn` flag clears when Codex reports the reply read; no guess based on merely opening Mote. Approval/input waits take priority.
+- Unread completed replies remain visible as a menu-bar reply count, a moving envelope and a dot in the task list. A matching `thread_read_receipts` row is authoritative and is refreshed every three seconds, overriding stale stream snapshots; the desktop `hasUnreadTurn` flag is a fallback when no matching receipt is available; no guess based on merely opening Mote. Approval/input waits take priority.
 - Notifications for newly observed waits and observed running-to-completed/failed transitions; notification mute and test controls.
 - Read-only local integration. No API key, backend, telemetry, automatic approvals or replies.
 
@@ -45,6 +45,6 @@ Tests/check_live_state.sh
 ./Mote.app/Contents/MacOS/Mote --diagnose
 ```
 
-Reader tests use isolated temporary databases and check running, completion, failure, interruption, stale records and latest-turn selection. Live reducer tests cover approval/answer transitions, clearing waits on resume, revision gaps, fresh snapshots and idle precedence. The running app has connected to the installed desktop IPC and received actual snapshots. A real end-to-end user approval/question followed by a visible macOS banner still needs manual verification; fixture tests are not proof of that flow.
+Reader tests use isolated temporary databases and check running, completion, failure, interruption, stale records, latest-turn selection, unread-to-read receipt updates and ignoring receipts for a different published turn. Live reducer tests cover approval/answer transitions, clearing waits on resume, revision gaps, fresh snapshots and idle precedence. The running app has connected to the installed desktop IPC and received actual snapshots. A real end-to-end user approval/question followed by a visible macOS banner still needs manual verification; fixture tests are not proof of that flow.
 
 The diagnostic command prints only task IDs and statuses. Source changes preserve the original Codex data and settings.
