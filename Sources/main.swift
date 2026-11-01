@@ -219,8 +219,8 @@ struct LocalReader {
         if liveStates[id]?.waiting != state.waiting {fputs("Mote waiting state: \(state.waiting ?? "none")\n",stderr)}
         liveStates[id]=state
         if let kind=state.waiting,let raw=rawJobs.first(where:{$0.id==id}) {
-            let signature=(state.latestTurn?.id ?? raw.turn)+kind+state.requestIDs.sorted().joined(separator:":")
-            if waitSignatures[id] != signature {var job=raw;job.turn=state.latestTurn?.id ?? raw.turn;job.status=kind;job.reason=state.requestReasons.values.sorted().first;notify(job,requests:state.requestIDs);waitSignatures[id]=signature}
+            let signature=(state.latestTurn?.id ?? raw.turn)+kind+(state.requestIDs+state.asyncQuestionIDs).sorted().joined(separator:":")
+            if waitSignatures[id] != signature {var job=raw;job.turn=state.latestTurn?.id ?? raw.turn;job.status=kind;job.reason=state.requestReasons.values.sorted().first ?? (!state.asyncQuestionIDs.isEmpty ? "질문에 답변이 필요해요":nil);notify(job,requests:state.requestIDs+state.asyncQuestionIDs);waitSignatures[id]=signature}
         }else{waitSignatures.removeValue(forKey:id)}
         reconcile();onUpdate?()
     }
@@ -238,7 +238,7 @@ struct LocalReader {
                     } else if let latest,["completed","failed","interrupted"].contains(latest.status) {
                         job.status=latest.status
                     }
-                    if let kind=liveState.waiting {job.status=kind;job.reason=liveState.requestReasons.values.sorted().first}
+                    if let kind=liveState.waiting {job.status=kind;job.reason=liveState.requestReasons.values.sorted().first ?? (!liveState.asyncQuestionIDs.isEmpty ? "질문에 답변이 필요해요":nil)}
                     else if liveState.runtime["type"] as? String == "active",latest == nil || latest?.status == "inProgress" {job.status="inProgress"}
                     if job.status=="completed",(job.readReceipt ?? liveState.unread)==true {job.status="unread"}
                 }
@@ -394,6 +394,7 @@ struct Panel:View {
     }
 }
 @MainActor final class AppDelegate:NSObject,NSApplicationDelegate,UNUserNotificationCenterDelegate {
+    var outsideClickMonitor:Any?;var localClickMonitor:Any?
     var didSetup=false;let monitor=Monitor();var item:NSStatusItem!;var panel:MotePanel!;var menuFairy:MenuFairy!
     func applicationDidFinishLaunching(_ notification:Notification){
         guard !didSetup else{return};didSetup=true
@@ -408,6 +409,16 @@ struct Panel:View {
         panel.standardWindowButton(.closeButton)?.isHidden=true;panel.standardWindowButton(.miniaturizeButton)?.isHidden=true;panel.standardWindowButton(.zoomButton)?.isHidden=true
         monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? " 확인 필요" : " "+self.monitor.menuSummary}
         monitor.onOpenInbox = {[weak self] in guard let self else{return};if !self.panel.isVisible{self.toggle()}}
+        outsideClickMonitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]){[weak self] _ in Task{@MainActor in self?.panel.orderOut(nil)}}
+        localClickMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]){[weak self] event in
+            MainActor.assumeIsolated {
+                if let self,self.panel.isVisible,event.window !== self.panel,event.window !== self.item.button?.window,event.window != nil,self.panel.frame.contains(NSEvent.mouseLocation)==false {self.panel.orderOut(nil)}
+            };return event
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName:NSWorkspace.didActivateApplicationNotification,object:nil,queue:.main){[weak self] note in
+            guard let app=note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,app.processIdentifier != ProcessInfo.processInfo.processIdentifier else{return}
+            Task{@MainActor in self?.panel.orderOut(nil)}
+        }
         monitor.start();toggle();fputs("Mote panel ready\n",stderr)
     }
     @objc func toggle(){

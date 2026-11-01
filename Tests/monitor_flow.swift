@@ -60,6 +60,17 @@ MainActor.assumeIsolated {
     expect(Monitor.conversationURL("chat-a?hostId=remote")==nil,"reject route injection")
     r.openURL={_ in false};r.open(oldRead.id);expect(r.error != nil,"failed open is visible")
     r.completionTask?.cancel()
+    let q=Monitor();q.ledger=NotificationLedger();q.onNotice={_,_,_ in};q.attentionAlerts=true;q.muted=false;q.pauseUntil=nil
+    q.apply(.success([running]))
+    var async=LiveState()
+    let question:[String:Any] = ["type":"agentMessage","id":"question-item","questions":[["title":"fixture"]]]
+    expect(async.apply(["type":"snapshot","revision":1,"conversationState":["threadRuntimeStatus":["type":"active","activeFlags":[]],"turnHistory":["history":["entitiesByKey":["turn-a":["turnId":"turn-a","status":"inProgress","turnStartedAtMs":running.startedAt*1000,"items":[question]]]]]]]),"async question snapshot")
+    q.receive(running.id,async);expect(q.waiting==1 && q.fairyStatus=="answer" && q.ledger.sent.count==1,"async question alerts without waiting flag")
+    q.receive(running.id,async);expect(q.ledger.sent.count==1,"async question deduplicated")
+    let reply=String(data:try! JSONSerialization.data(withJSONObject:["questionItemId":async.asyncQuestionIDs[0],"answer":"fixture","question":"fixture"]),encoding:.utf8)!
+    let item:[String:Any] = ["type":"userMessage","content":[["type":"text","text":"<send_user_message_question_reply>"+reply+"</send_user_message_question_reply>"]]]
+    expect(async.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["turnHistory","history","entitiesByKey","turn-a","items",1],"value":item]]]),"question reply patch")
+    q.receive(running.id,async);expect(q.waiting==0,"submitted answer clears async wait")
     m.pause();m.notify(running);expect(delivered.count==1,"snooze suppresses notifications")
     m.resume();m.completionTask?.cancel()
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)

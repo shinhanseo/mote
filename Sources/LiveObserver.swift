@@ -11,8 +11,43 @@ struct LiveState {
     struct Turn {var id:String;var status:String;var started:Double}
     var turns:[String:Turn]=[:]
     var latestTurn:Turn? {turns.values.max{$0.started<$1.started}}
+    // Keep only question identities and reply identities, never question/answer text.
+    var questionItems=[String:[String:Any]]()
+    var asyncQuestionIDs:[String] {
+        let items=Array(questionItems.values)
+        let answered=Set(items.flatMap{$0["answered"] as? [String] ?? []})
+        return items.flatMap { item -> [String] in
+            guard let id=item["id"] as? String,let count=item["count"] as? Int else{return []}
+            return (0..<count).compactMap{index in
+                let data=try! JSONSerialization.data(withJSONObject:["request_user_input_async",id,index],options:[.fragmentsAllowed,.withoutEscapingSlashes])
+                let key=String(data:data,encoding:.utf8)!
+                return answered.contains(key) ? nil:key
+            }
+        }.sorted()
+    }
+    static func questionMetadata(_ item:[String:Any])->[String:Any] {
+        var result:[String:Any]=["type":item["type"] ?? "", "status":item["status"] ?? ""]
+        if item["type"] as? String == "agentMessage",let id=item["id"] as? String {
+            result["id"]=id;result["count"]=(item["questions"] as? [Any])?.count ?? 0
+        }
+        let type=item["type"] as? String
+        if type == "userMessage" || (type == "steeringUserMessage" && item["status"] as? String == "accepted") {
+            let parts=(item["content"] ?? item["input"]) as? [[String:Any]] ?? []
+            let text=parts.compactMap{$0["type"] as? String == "text" ? $0["text"] as? String:nil}.joined(separator:"\n")
+            let start="<send_user_message_question_reply>",end="</send_user_message_question_reply>"
+            if let a=text.range(of:start,options:.backwards),let b=text.range(of:end,range:a.upperBound..<text.endIndex),let data=String(text[a.upperBound..<b.lowerBound]).data(using:.utf8),let object=try? JSONSerialization.jsonObject(with:data) {
+                let replies=(object as? [[String:Any]]) ?? (object as? [String:Any]).map{[$0]} ?? []
+                result["answered"]=replies.compactMap{$0["questionItemId"] as? String}
+            }
+        }
+        return result
+    }
+    mutating func captureQuestions(_ key:String,_ object:[String:Any]) {
+        for (index,item) in (object["items"] as? [[String:Any]] ?? []).enumerated(){questionItems[key+"/"+String(index)]=Self.questionMetadata(item)}
+    }
     mutating func capture(_ key:String,_ object:[String:Any]){
         guard let id=object["turnId"] as? String,let status=object["status"] as? String else{return}
+        captureQuestions(key,object)
         turns[key]=Turn(id:id,status:status,started:object["turnStartedAtMs"] as? Double ?? 0)
         if turns.count>200 {turns=Dictionary(uniqueKeysWithValues:turns.sorted{$0.value.started>$1.value.started}.prefix(100).map{($0.key,$0.value)})}
     }
@@ -21,6 +56,7 @@ struct LiveState {
         for (key,object) in entities {capture(key,object)}
     }
     var waiting: String? {
+        if !asyncQuestionIDs.isEmpty{return "answer"}
         guard runtime["type"] as? String == "active" else { return nil }
         let flags = runtime["activeFlags"] as? [String] ?? []
         if flags.contains("waitingOnApproval") { return "approval" }
@@ -30,7 +66,7 @@ struct LiveState {
     mutating func apply(_ change:[String:Any]) -> Bool {
         guard let rev=change["revision"] as? Int else { return false }
         if change["type"] as? String == "snapshot", let state=change["conversationState"] as? [String:Any] {
-            turns.removeAll()
+            turns.removeAll();questionItems.removeAll()
             if let history=state["turnHistory"] as? [String:Any] {captureHistory(history)}
             if let list=state["turns"] as? [[String:Any]] {for (i,object) in list.enumerated(){capture("legacy:\(i)",object)}}
             unread=state["hasUnreadTurn"] as? Bool
@@ -47,7 +83,7 @@ struct LiveState {
             guard let path=patch["path"] as? [Any],let first=path.first as? String else {continue}
             let op=patch["op"] as? String ?? ""
             if first == "turnHistory" {
-                if path.count==1,let history=patch["value"] as? [String:Any]{turns.removeAll();captureHistory(history)}
+                if path.count==1,let history=patch["value"] as? [String:Any]{turns.removeAll();questionItems.removeAll();captureHistory(history)}
                 else if path.count>=4,path[1] as? String == "history",path[2] as? String == "entitiesByKey",let key=path[3] as? String {
                     if path.count==4 {if op=="remove"{turns.removeValue(forKey:key)}else if let object=patch["value"] as? [String:Any]{capture(key,object)}}
                     else if path.count==5,let field=path[4] as? String,var turn=turns[key]{
@@ -55,6 +91,25 @@ struct LiveState {
                         if field=="turnStartedAtMs",let value=patch["value"] as? Double {turn.started=value}
                         turns[key]=turn
                     }
+                }
+            }
+            if first == "turnHistory",path.count==5,path[2] as? String == "entitiesByKey",let key=path[3] as? String,path[4] as? String == "items" {
+                questionItems=questionItems.filter{!$0.key.hasPrefix(key+"/")}
+                if let items=patch["value"] as? [[String:Any]]{captureQuestions(key,["items":items])}
+            }
+            if first == "turnHistory",path.count>=6,path[2] as? String == "entitiesByKey",let key=path[3] as? String,path[4] as? String == "items",let index=path[5] as? Int {
+                let itemKey=key+"/"+String(index)
+                if path.count==6 {
+                    if op=="remove"{questionItems.removeValue(forKey:itemKey)}
+                    else if let item=patch["value"] as? [String:Any]{questionItems[itemKey]=Self.questionMetadata(item)}
+                } else if path.count==7,["content","input"].contains(path[6] as? String ?? ""),let field=path[6] as? String {
+                    var item=questionItems[itemKey] ?? [:];item[field]=patch["value"]
+                    questionItems[itemKey]=Self.questionMetadata(item)
+                } else if path[6] as? String == "questions" {
+                    var item=questionItems[itemKey] ?? [:]
+                    if path.count==7 {item["count"]=(patch["value"] as? [Any])?.count ?? 0}
+                    else if path.count==8,let index=path[7] as? Int {item["count"]=op=="remove" ? max(0,(item["count"] as? Int ?? 0)-1):max(item["count"] as? Int ?? 0,index+1)}
+                    questionItems[itemKey]=item
                 }
             }
             if first == "turns",path.count>=2,let index=path[1] as? Int {
