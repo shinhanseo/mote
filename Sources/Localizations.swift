@@ -17,6 +17,16 @@ enum L10n {
         return value
     }
     static let english:[String:String] = [
+        "배포 버전 확인 중…":"Checking published releases…",
+        "새 버전 {0}을 사용할 수 있어요.":"Version {0} is available.",
+        "최신 배포 버전을 사용하고 있어요.":"You are running the latest release.",
+        "새 배포 버전 자동 확인":"Automatically check for new releases",
+        "새 버전 다운로드":"Download update",
+        "변경 내용":"Release notes",
+        "Mote를 종료하고 DMG의 앱으로 기존 앱을 대치해 주세요. 설정은 유지돼요.":"Quit Mote and replace the existing app with the one in the DMG. Settings are kept.",
+        "업데이트 확인은 GitHub 공개 릴리스에만 접속해요. 자동 확인을 켜면 실행 중 6시간마다 확인하며, 대화 내용은 보내지 않아요.":"Update checks contact public GitHub releases only. Optional automatic checks run every six hours while Mote is open. Chat content is not sent.",
+        "새 버전 {0}":"Version {0} available",
+        "다운로드":"Download",
 
         "진행 {0}": "Working {0}",
         "대기 {0}": "Waiting {0}",

@@ -126,6 +126,15 @@ MainActor.assumeIsolated {
     let twenty=UsageSnapshot(recorded:policyNow,windows:[UsageSnapshot.Window(used:81,minutes:300,reset:policyNow.addingTimeInterval(3600))])
     expect(twenties.observe(twenty,now:policyNow).first?.1==20,"20 percent warning")
     expect(twenties.observe(low,now:policyNow).first?.1==5,"5 percent warning is independent")
+
+    let releaseFixture:[String:Any]=["tag_name":"v0.3.10","draft":false,"prerelease":false,"assets":[["state":"uploaded","browser_download_url":"https://github.com/shinhanseo/mote/releases/download/v0.3.10/Mote-0.3.10.dmg"]]]
+    let published=PublishedRelease.parse(try! JSONSerialization.data(withJSONObject:releaseFixture))!
+    expect(published.isNewer(than:"0.3.9"),"release versions compare numerically")
+    expect(!published.isNewer(than:"0.3.10") && !published.isNewer(than:"0.4.0"),"equal and older versions are not updates")
+    var draft=releaseFixture;draft["prerelease"]=true
+    expect(PublishedRelease.parse(try! JSONSerialization.data(withJSONObject:draft))==nil,"skip prereleases")
+    var malicious=releaseFixture;malicious["assets"]=[["state":"uploaded","browser_download_url":"https://example.com/Mote.dmg"]]
+    expect(PublishedRelease.parse(try! JSONSerialization.data(withJSONObject:malicious))==nil,"only expected release assets can open")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

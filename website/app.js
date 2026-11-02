@@ -18,12 +18,24 @@ if(english) Object.assign(states,{
  unread:{title:'1 unread<br>reply.',menu:'Unread 1',row:'web-app · Reply ready · Unread',icon:'✉',spinner:false,reason:'Read replies clear the unread indicator. Pinned chats stay in your list.',announcement:'A reply is ready.'},
  idle:{title:'Resting<br>for now.',menu:'',row:'web-app · Done',icon:'✓',spinner:false,reason:null,announcement:'Mote is resting.'}
 });
+Object.assign(states,english ? {
+ answer:{title:'1 task needs<br>your reply.',menu:'Input 1',row:'web-app · Choose how to proceed',icon:'?',spinner:false,reason:'Waiting 5m · Since detection',announcement:'Your input is needed.'},
+ offline:{title:'Check your<br>network connection.',menu:'Status unavailable',row:'web-app · Working · Check progress',icon:'⌁',spinner:false,reason:'No network path. Check Wi-Fi or Ethernet.',announcement:'Network path unavailable.'}
+}: {
+ answer:{title:'1개 작업이<br>답변을 기다려요.',menu:'답변 대기 1',row:'web-app · 진행 방식을 선택해 주세요',icon:'?',spinner:false,reason:'기다린 지 5분 · 감지 시점 기준',announcement:'입력이 필요합니다.'},
+ offline:{title:'네트워크 연결을<br>확인해 주세요.',menu:'상태 확인 불가',row:'web-app · 작업 중 · 진행 확인 필요',icon:'⌁',spinner:false,reason:'네트워크 경로가 없어요. Wi-Fi·유선 연결을 확인해 주세요.',announcement:'네트워크 경로가 없습니다.'}
+});
+states.working.row=english?'web-app · Working · Last activity 12s ago':'web-app · 작업 중 · 마지막 활동 12초 전';
+states.approval.row=english?'web-app · Command approval needed':'web-app · 명령 실행 승인 필요';
+states.approval.reason=english?'Waiting 5m · Since detection':'기다린 지 5분 · 감지 시점 기준';
 document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{
   const name=button.dataset.demo;const state=states[name];if(!state)return;
   root.dataset.state=name;
+  const badge=document.getElementById('demo-badge');badge.hidden=!['approval','answer','offline'].includes(name);badge.textContent=name==='approval'?'!':name==='answer'?'?':'⌁';
   document.getElementById('demo-headline').innerHTML=state.title;
   document.getElementById('menu-label').textContent=state.menu;
-  document.getElementById('demo-summary').textContent=state.menu||(english ? 'All caught up':'모두 확인했어요');
+  document.getElementById('demo-summary').textContent=name==='offline' ? (english?'Status unavailable':'상태 확인 불가'):(english?'Needs attention '+(['approval','answer','unread'].includes(name)?1:0)+' · Detected chats 2':'확인할 작업 '+(['approval','answer','unread'].includes(name)?1:0)+' · 감지한 대화 2');
+  document.getElementById('demo-connection').textContent=name==='offline' ? (english?'● No network':'● 네트워크 없음'):(english?'● Connected':'● 연결됨');
   document.getElementById('demo-row-status').textContent=state.row;
   const icon=document.getElementById('demo-status-icon');icon.classList.toggle('spinner',state.spinner);icon.textContent=state.icon;
   const reason=document.getElementById('request-reason');reason.hidden=!state.reason;reason.textContent=state.reason||'';

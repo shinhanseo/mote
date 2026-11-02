@@ -308,6 +308,7 @@ struct LocalReader {
         }
     }
     func refresh() {
+        updates.checkIfNeeded()
         if !demoMode,screensAsleep || CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)>300 {setAway(true)}
         checkSnoozes()
         checkUsageResets()
@@ -448,6 +449,14 @@ struct RunningCaption:View {
         }
     }
 }
+struct UpdateNotice:View {
+    @ObservedObject var updates:UpdateChecker
+    var body:some View {
+        if updates.available,let release=updates.release {
+            HStack{Text(L10n.text("새 버전 {0}",[release.version])).font(.caption);Spacer();Button(L10n.text("다운로드")){updates.openDownload()};Button(L10n.text("변경 내용")){updates.openNotes()}}.font(.caption).padding(10).background(Palette.olive.opacity(0.08),in:RoundedRectangle(cornerRadius:9))
+        }
+    }
+}
 struct Panel:View {
     @ObservedObject var model:Monitor
     var headline:String {
@@ -464,6 +473,7 @@ struct Panel:View {
     var body:some View {
         VStack(alignment:.leading,spacing:16){
             HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill(model.networkAvailable==false ? Color.orange:model.liveConnected ? Palette.olive:Color.orange).frame(width:6,height:6);Text(model.networkAvailable==false ? L10n.text("네트워크 없음"):model.liveIssue != nil ? L10n.text("기록 감지"):model.liveConnected ? L10n.text("연결됨"):L10n.text("재연결 중")).font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel(L10n.text("설정"))}
+            UpdateNotice(updates:model.updates)
             if model.demoMode{Text(L10n.text("미리보기 · 실제 대화와 무관한 테스트 상태")).font(.caption).foregroundStyle(.orange)}
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text(L10n.text("작은 먼지가 챙겨둘게요")).font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)
