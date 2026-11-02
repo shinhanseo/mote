@@ -2,9 +2,17 @@
 
 ![Mote — Codex가 기다릴 때, 모트가 알려줘요.](docs/assets/mote-hero.svg)
 
-[**Mac용 다운로드 ↓**](https://github.com/shinhanseo/mote/releases/latest)　 /　 [홈페이지 ↗](https://shinhanseo.github.io/mote/)　 /　 [English](README.en.md)
+<p>
+<a href="https://github.com/shinhanseo/mote/releases/latest"><img src="docs/assets/download-ko.svg" height="48" alt="Mac용 다운로드"></a>&nbsp;
+<a href="https://shinhanseo.github.io/mote/"><img src="docs/assets/website-ko.svg" height="48" alt="홈페이지"></a>&nbsp;
+<a href="README.en.md"><img src="docs/assets/english.svg" height="48" alt="English"></a>
+</p>
 
-<sub>macOS 14+ · Apple Silicon / Intel · 무료 · 계정과 API 키 없이</sub>
+<p>
+<img src="https://img.shields.io/badge/macOS-14%2B-687454?style=flat-square" alt="macOS 14+">&nbsp;
+<img src="https://img.shields.io/badge/Apple_Silicon_%26_Intel-292b27?style=flat-square" alt="Apple Silicon and Intel">&nbsp;
+<img src="https://img.shields.io/badge/무료-로컬_감지-687454?style=flat-square" alt="무료 · 로컬 감지">
+</p>
 
 <br>
 

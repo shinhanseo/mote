@@ -6,9 +6,17 @@
 
 **When Codex needs you, Mote lets you know.**
 
-[**Download for Mac ↓**](https://github.com/shinhanseo/mote/releases/latest)　 /　 [Website ↗](https://shinhanseo.github.io/mote/en/)　 /　 [한국어](README.md)
+<p>
+<a href="https://github.com/shinhanseo/mote/releases/latest"><img src="docs/assets/download-en.svg" height="48" alt="Download for Mac"></a>&nbsp;
+<a href="https://shinhanseo.github.io/mote/en/"><img src="docs/assets/website-en.svg" height="48" alt="Website"></a>&nbsp;
+<a href="README.md"><img src="docs/assets/korean.svg" height="48" alt="한국어"></a>
+</p>
 
-<sub>macOS 14+ · Apple Silicon / Intel · Free · No account or API key</sub>
+<p>
+<img src="https://img.shields.io/badge/macOS-14%2B-687454?style=flat-square" alt="macOS 14+">&nbsp;
+<img src="https://img.shields.io/badge/Apple_Silicon_%26_Intel-292b27?style=flat-square" alt="Apple Silicon and Intel">&nbsp;
+<img src="https://img.shields.io/badge/Free-local_first-687454?style=flat-square" alt="Free, local first">
+</p>
 
 <br>
 
