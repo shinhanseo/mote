@@ -502,7 +502,7 @@ struct Panel:View {
                 HStack{Label(L10n.text("macOS 알림이 허용되지 않았어요"),systemImage:"exclamationmark.triangle").foregroundStyle(.orange);Spacer();Button(L10n.text("설정 열기")){model.requestNotifications()}}.font(.system(size:12,weight:.medium))
             }
             HStack{Button(model.notificationStatus){model.requestNotifications()};Spacer();Menu{Button(L10n.text("새로고침")){model.refresh()};Button(model.paused ? L10n.text("알림 다시 켜기"):L10n.text("30분 동안 알림 쉬기")){if model.paused{model.resume()}else{model.pause()}};Button(L10n.text("테스트 알림")){model.notify(Job(id:"test",title:L10n.text("모트 알림이 정상 작동해요"),project:"",status:"completed",turn:UUID().uuidString),test:true)};Button(L10n.text("종료")){NSApp.terminate(nil)}}label:{Image(systemName:"ellipsis").frame(width:30,height:28).accessibilityLabel(L10n.text("더 보기"))}}.font(.system(size:12,weight:.medium)).foregroundStyle(.primary).buttonStyle(.borderless)
-            if model.paused,let until=model.pauseUntil{HStack{Text(L10n.text("알림 쉬는 중 · {0}까지", [String(describing: until.formatted(date:.omitted,time:.shortened))]));Spacer();Button(L10n.text("다시 켜기")){model.resume()}}.font(.caption).foregroundStyle(.secondary)}
+            if model.paused,let until=model.pauseUntil{HStack{Text(L10n.text("알림 쉬는 중 · {0}까지", [String(describing: until.moteFormatted(date:.omitted,time:.shortened))]));Spacer();Button(L10n.text("다시 켜기")){model.resume()}}.font(.caption).foregroundStyle(.secondary)}
         }.padding(23).frame(width:440).tint(Palette.olive).environment(\.locale,L10n.locale).disabled(model.demoMode)
     }
     func stateColor(_ status:String)->Color {

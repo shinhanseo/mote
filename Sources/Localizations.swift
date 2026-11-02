@@ -224,3 +224,9 @@ enum L10n {
         "5시간": "5-hour"
     ]
 }
+
+extension Date {
+    func moteFormatted(date:Date.FormatStyle.DateStyle,time:Date.FormatStyle.TimeStyle)->String {
+        formatted(Date.FormatStyle(date:date,time:time).locale(L10n.locale))
+    }
+}

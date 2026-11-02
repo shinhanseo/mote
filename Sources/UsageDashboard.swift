@@ -61,10 +61,10 @@ struct UsageDashboard:View {
                             let minutes=max(0,Int(reset.timeIntervalSince(context.date)/60))
                             Text(L10n.text("초기화까지 {0}시간 {1}분 · 예정 시각 기준", [String(describing: minutes/60), String(describing: minutes%60)])).font(.system(size:12,weight:.medium))
                         }}
-                        if let reset=window.reset {Text(window.expired(Date()) ? L10n.text("초기화 시각 경과 · 최신 사용량은 아직 확인되지 않았어요"):L10n.text("초기화 · {0}", [String(describing: reset.formatted(date:.abbreviated,time:.shortened))])).font(.system(size:10)).foregroundStyle(.secondary)}
+                        if let reset=window.reset {Text(window.expired(Date()) ? L10n.text("초기화 시각 경과 · 최신 사용량은 아직 확인되지 않았어요"):L10n.text("초기화 · {0}", [String(describing: reset.moteFormatted(date:.abbreviated,time:.shortened))])).font(.system(size:10)).foregroundStyle(.secondary)}
                     }
                 }
-                Text(L10n.text("기록 시각 · {0}", [String(describing: snapshot.recorded.formatted(date:.abbreviated,time:.shortened))])).font(.system(size:10)).foregroundStyle(.secondary)
+                Text(L10n.text("기록 시각 · {0}", [String(describing: snapshot.recorded.moteFormatted(date:.abbreviated,time:.shortened))])).font(.system(size:10)).foregroundStyle(.secondary)
                 if Date().timeIntervalSince(snapshot.recorded)>900 {Text(L10n.text("15분 이상 지난 기록이에요. 실제 잔여량과 다를 수 있어요.")).font(.system(size:10)).foregroundStyle(.orange)}
             }else{Text(model.usageLoading ? L10n.text("로컬 사용량 기록 확인 중…"):L10n.text("사용량 기록이 아직 없어요. Codex에서 작업한 뒤 다시 확인해 주세요.")).font(.caption).foregroundStyle(.secondary)}
             Text(L10n.text("이 Mac의 최근 Codex 기록 기준 · 계정 전환 시 이전 계정 기록일 수 있어요. 새로고침은 서버 조회가 아닌 기록 재확인입니다.")).font(.system(size:10)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
