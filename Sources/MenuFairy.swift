@@ -12,22 +12,39 @@ import AppKit
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(accessibilityChanged),name:NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,object:nil)
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(sleeping),name:NSWorkspace.screensDidSleepNotification,object:nil)
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(waking),name:NSWorkspace.screensDidWakeNotification,object:nil)
+        NotificationCenter.default.addObserver(self,selector:#selector(accessibilityChanged),name:.NSProcessInfoPowerStateDidChange,object:nil)
     }
-    func update(_ next:String){guard state != next || button?.image == nil else{draw();return};state=next;restart()}
+    func update(_ next:String){guard state != next || button?.image == nil else{return};state=next;restart()}
     @objc private func accessibilityChanged(){restart()}
     @objc private func sleeping(){screensSleeping=true;timer?.invalidate();timer=nil}
     @objc private func waking(){screensSleeping=false;restart()}
     private func restart(){
-        timer?.invalidate();timer=nil;frame=0;draw()
+        timer?.invalidate();timer=nil;frame=0;updateAccessibility();draw()
         guard !screensSleeping,state != "idle",!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{return}
-        let timer=Timer(timeInterval:state == "inProgress" ? 0.16:0.32,repeats:true){[weak self] _ in Task{@MainActor in guard let self else{return};self.frame=(self.frame+1)%4;self.draw()}}
-        timer.tolerance=0.03;RunLoop.main.add(timer,forMode:.common);self.timer=timer
+        let timer=Timer(timeInterval:ProcessInfo.processInfo.isLowPowerModeEnabled ? 1.0:0.4,repeats:true){[weak self] _ in Task{@MainActor in guard let self else{return};self.frame=(self.frame+1)%4;self.draw()}}
+        timer.tolerance=0.08;RunLoop.main.add(timer,forMode:.common);self.timer=timer
     }
     private func draw(){
         if frames[state]==nil{frames[state]=(0..<4).map{Self.image(state:state,frame:$0)}}
         button?.image=frames[state]?[frame]
+    }
+    private func updateAccessibility(){
         button?.toolTip=["inProgress":L10n.text("모트 · 작업 중"),"approval":L10n.text("모트 · 승인 대기"),"answer":L10n.text("모트 · 답변 대기"),"unread":L10n.text("모트 · 미확인 답변이 있어요"),"failed":L10n.text("모트 · 오류 확인이 필요해요"),"idle":L10n.text("모트 · 쉬는 중")][state]
         button?.setAccessibilityLabel(button?.toolTip ?? L10n.text("모트"))
+    }
+    // Drawing-handler NSImages are lazy, so caching the object alone does not
+    // cache drawing. Materialize 1x/2x bitmap frames once, retaining template tint.
+    private static func rasterize(_ source:NSImage)->NSImage {
+        let result=NSImage(size:source.size)
+        for scale in [1,2] {
+            let w=Int(source.size.width)*scale,h=Int(source.size.height)*scale
+            guard let rep=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:w,pixelsHigh:h,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0),let context=NSGraphicsContext(bitmapImageRep:rep) else{continue}
+            NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=context
+            context.cgContext.scaleBy(x:CGFloat(scale),y:CGFloat(scale))
+            source.draw(in:NSRect(origin:.zero,size:source.size))
+            NSGraphicsContext.restoreGraphicsState();rep.size=source.size;result.addRepresentation(rep)
+        }
+        return result
     }
     private static var portraitAssets=[String:NSImage]()
     static func portrait(state:String,frame:Int)->NSImage {
@@ -94,6 +111,6 @@ import AppKit
             NSGraphicsContext.restoreGraphicsState()
             if state != "idle" {NSColor.black.setFill();for x:CGFloat in [10.3,16.3]{NSBezierPath(ovalIn:NSRect(x:x,y:center.y+0.4,width:1,height:1.8)).fill()}}
             return true
-        };image.isTemplate=true;return image
+        };let cached=rasterize(image);cached.isTemplate=true;return cached
     }
 }

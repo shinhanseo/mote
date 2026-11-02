@@ -32,19 +32,43 @@ struct UsageSnapshot {
               let rows=try? LocalReader.query(home+"/"+state,"SELECT rollout_path FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC LIMIT 30") else{return nil}
         var newest:UsageSnapshot?
         for row in rows {
-            guard let path=row.first,path.hasPrefix(home+"/"),let handle=FileHandle(forReadingAtPath:path) else{continue}
-            defer{try? handle.close()}
-            guard let end=try? handle.seekToEnd() else{continue}
-            try? handle.seek(toOffset:end>1_048_576 ? end-1_048_576:0)
-            guard let data=try? handle.readToEnd() else{continue}
-            for line in data.split(separator:10).reversed() {
-                guard let snapshot=parse(Data(line)) else{continue}
-                if newest == nil || snapshot.recorded>newest!.recorded{newest=snapshot}
-                break
-            }
+            guard let path=row.first,path.hasPrefix(home+"/"),let snapshot=readFile(path) else{continue}
+            if newest == nil || snapshot.recorded>newest!.recorded{newest=snapshot}
         }
         return newest
     }
+    private final class FileCache:@unchecked Sendable {
+        struct Entry {let size:UInt64;let modified:Date;let inode:UInt64;let snapshot:UsageSnapshot?}
+        let lock=NSLock()
+        var entries=[String:Entry]()
+    }
+    private static let cache=FileCache()
+    static func readFile(_ path:String)->UsageSnapshot? {
+        guard let attrs=try? FileManager.default.attributesOfItem(atPath:path),
+              let size=attrs[.size] as? UInt64,let modified=attrs[.modificationDate] as? Date,
+              let inode=attrs[.systemFileNumber] as? UInt64 else{return nil}
+        cache.lock.lock();let previous=cache.entries[path];cache.lock.unlock()
+        if let previous,previous.size==size,previous.modified==modified,previous.inode==inode{return previous.snapshot}
+        guard let handle=FileHandle(forReadingAtPath:path) else{return nil}
+        defer{try? handle.close()}
+        guard let end=try? handle.seekToEnd() else{return nil}
+        try? handle.seek(toOffset:end>1_048_576 ? end-1_048_576:0)
+        guard let data=try? handle.readToEnd() else{return nil}
+        var newest:UsageSnapshot?
+        let marker=Data("\"rate_limits\"".utf8)
+        for line in data.split(separator:10).reversed() {
+            // Most lines are tool/chat text. Decode only quota candidates.
+            guard line.range(of:marker) != nil,let snapshot=parse(Data(line)) else{continue}
+            newest=snapshot;break
+        }
+        cache.lock.lock()
+        if cache.entries.count>=64,cache.entries[path]==nil {cache.entries.removeAll(keepingCapacity:true)}
+        // Store the pre-read stamp: an append during this read invalidates next time.
+        cache.entries[path]=FileCache.Entry(size:size,modified:modified,inode:inode,snapshot:newest)
+        cache.lock.unlock()
+        return newest
+    }
+
 }
 
 struct UsageDashboard:View {

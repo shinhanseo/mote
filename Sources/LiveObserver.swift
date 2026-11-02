@@ -15,13 +15,13 @@ struct LiveState {
     // Keep only question identities and reply identities, never question/answer text.
     var questionItems=[String:[String:Any]]()
     var asyncQuestionIDs:[String] {
-        let items=Array(questionItems.values)
-        let answered=Set(items.flatMap{$0["answered"] as? [String] ?? []})
-        // Async prompts belong to the turn that asked them. A later user turn
-        // supersedes old prompts even when the user replied in ordinary chat.
+        // Resolve only current-turn questions. Scanning every historical item on
+        // each streamed token grows CPU usage with conversation length.
         guard let latest=latestTurn else{return []}
         let latestKeys=turns.filter{$0.value.id==latest.id}.map(\.key)
         let currentItems=questionItems.filter{entry in latestKeys.contains{entry.key.hasPrefix($0+"/")}}.map(\.value)
+        guard currentItems.contains(where:{($0["count"] as? Int ?? 0)>0}) else{return []}
+        let answered=Set(questionItems.values.flatMap{$0["answered"] as? [String] ?? []})
         return currentItems.flatMap { item -> [String] in
             guard let id=item["id"] as? String,let count=item["count"] as? Int else{return []}
             return (0..<count).compactMap{index in
@@ -49,13 +49,21 @@ struct LiveState {
         return result
     }
     mutating func captureQuestions(_ key:String,_ object:[String:Any]) {
-        for (index,item) in (object["items"] as? [[String:Any]] ?? []).enumerated(){questionItems[key+"/"+String(index)]=Self.questionMetadata(item)}
+        questionItems=questionItems.filter{!$0.key.hasPrefix(key+"/")}
+        for (index,item) in (object["items"] as? [[String:Any]] ?? []).enumerated(){
+            let metadata=Self.questionMetadata(item)
+            if metadata["id"] != nil || metadata["answered"] != nil {questionItems[key+"/"+String(index)]=metadata}
+        }
     }
     mutating func capture(_ key:String,_ object:[String:Any]){
         guard let id=object["turnId"] as? String,let status=object["status"] as? String else{return}
         captureQuestions(key,object)
         turns[key]=Turn(id:id,status:status,started:object["turnStartedAtMs"] as? Double ?? 0)
-        if turns.count>200 {turns=Dictionary(uniqueKeysWithValues:turns.sorted{$0.value.started>$1.value.started}.prefix(100).map{($0.key,$0.value)})}
+        if turns.count>200 {
+            turns=Dictionary(uniqueKeysWithValues:turns.sorted{$0.value.started>$1.value.started}.prefix(100).map{($0.key,$0.value)})
+            let retained=Set(turns.keys)
+            questionItems=questionItems.filter{entry in entry.key.lastIndex(of:"/").map{retained.contains(String(entry.key[..<$0]))} ?? false}
+        }
     }
     mutating func captureHistory(_ history:[String:Any]){
         guard let store=history["history"] as? [String:Any],let entities=store["entitiesByKey"] as? [String:[String:Any]] else{return}
@@ -192,16 +200,21 @@ final class LiveObserver: @unchecked Sendable {
                 let size=buffer.prefix(4).enumerated().reduce(0){$0 | (Int($1.element)<<($1.offset*8))}
                 guard size>0,size<=32*1024*1024 else{return};guard buffer.count>=size+4 else{break}
                 let data=Data(buffer.dropFirst(4).prefix(size));buffer.removeFirst(size+4);lastFrame=Date()
-                guard let message=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else{return}
+                // This worker lives for the app's lifetime. Drain Foundation's
+                // temporary JSON objects per frame, not only when the thread exits.
+                let valid:Bool=autoreleasepool {
+                guard let message=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else{return false}
                 if message["type"] as? String == "response", message["method"] as? String == "initialize",let result=message["result"] as? [String:Any],let id=result["clientId"] as? String {client=id;onDiagnostic?(nil);onConnection?(true)}
                 if message["type"] as? String == "client-discovery-request",let request=message["requestId"] {_ = send(["type":"client-discovery-response","requestId":request,"response":["canHandle":false]],fd)}
                 if message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int != 11 {onDiagnostic?(L10n.text("현재 Codex 실시간 형식은 아직 지원하지 않아요. 기본 기록 감지는 계속됩니다."))}
-                guard message["type"] as? String == "broadcast",message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int == 11,let params=message["params"] as? [String:Any],params["hostId"] as? String == "local",let id=params["conversationId"] as? String,wanted.contains(id),let change=params["change"] as? [String:Any] else{continue}
+                guard message["type"] as? String == "broadcast",message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int == 11,let params=message["params"] as? [String:Any],params["hostId"] as? String == "local",let id=params["conversationId"] as? String,wanted.contains(id),let change=params["change"] as? [String:Any] else{return true}
                 var state=states[id] ?? LiveState()
-                if state.apply(change){states[id]=state;onState?(id,state)}else{
-                    // Revision gap: discard stale status, reconnect for a fresh snapshot.
-                    return
+                guard state.apply(change) else{return false}
+                states[id]=state;onState?(id,state)
+                return true
                 }
+                if !valid{return} // malformed frame or revision gap: fresh snapshot
+
             }
         }
     }

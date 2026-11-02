@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 MainActor.assumeIsolated {
     func expect(_ result:Bool,_ message:String){precondition(result,message)}
@@ -135,6 +136,36 @@ MainActor.assumeIsolated {
     expect(PublishedRelease.parse(try! JSONSerialization.data(withJSONObject:draft))==nil,"skip prereleases")
     var malicious=releaseFixture;malicious["assets"]=[["state":"uploaded","browser_download_url":"https://example.com/Mote.dmg"]]
     expect(PublishedRelease.parse(try! JSONSerialization.data(withJSONObject:malicious))==nil,"only expected release assets can open")
+    _ = NSApplication.shared
+    let hiddenPanel=MotePanel(contentRect:NSRect(x:0,y:0,width:100,height:100),styleMask:.borderless,backing:.buffered,defer:true)
+    hiddenPanel.contentView=NSView();hiddenPanel.orderOut(nil)
+    expect(hiddenPanel.contentView==nil,"closing the panel releases its rendering tree")
+    for kind in ["idle","inProgress","approval","answer","unread","failed"] {
+        for frame in 0..<4 {
+            let image=MenuFairy.image(state:kind,frame:frame)
+            expect(image.isTemplate && image.size==NSSize(width:28,height:22),"menu frames retain native template size")
+            expect(image.representations.count==2,"menu frame must be rasterized for 1x and 2x")
+        }
+    }
+    print("PASS: closed panel releases content; all menu states have cached Retina template representations")
+    var jobChanges=0
+    let observation=m.$jobs.dropFirst().sink{_ in jobChanges += 1}
+    m.reconcile();let unchangedCount=jobChanges;m.reconcile()
+    expect(jobChanges==unchangedCount,"unchanged jobs must not invalidate SwiftUI")
+    withExtendedLifetime(observation){}
+    let cachePath=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer{try? FileManager.default.removeItem(at:cachePath)}
+    func quota(_ used:Int)->Data {Data("{\"timestamp\":\"2026-11-02T00:00:00.000Z\",\"payload\":{\"rate_limits\":{\"primary\":{\"used_percent\":\(used),\"window_minutes\":300}}}}\n".utf8)}
+    try! quota(10).write(to:cachePath)
+    expect(UsageSnapshot.readFile(cachePath.path)?.windows.first?.used==10,"first usage read")
+    expect(UsageSnapshot.readFile(cachePath.path)?.windows.first?.used==10,"unchanged usage cache")
+    let append=try! FileHandle(forWritingTo:cachePath);try! append.seekToEnd();try! append.write(contentsOf:quota(20));try! append.close()
+    expect(UsageSnapshot.readFile(cachePath.path)?.windows.first?.used==20,"usage cache invalidated by append")
+    try! Data("unrelated text\n".utf8).write(to:cachePath)
+    expect(UsageSnapshot.readFile(cachePath.path)==nil,"truncation cannot retain old quota")
+    try! quota(30).write(to:cachePath,options:.atomic)
+    expect(UsageSnapshot.readFile(cachePath.path)?.windows.first?.used==30,"replacement invalidates cached empty file")
+    print("PASS: unchanged model does not republish; quota cache handles append, truncate, replacement")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

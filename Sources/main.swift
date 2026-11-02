@@ -236,7 +236,7 @@ struct LocalReader {
         live.onDiagnostic = {[weak self] message in Task{@MainActor in guard let self else{return};self.liveIssue=message;if message != nil{self.liveStates.removeAll();self.reconcile();self.onUpdate?()}}}
         live.onState = {[weak self] id,state in Task { @MainActor in self?.receive(id,state) }}
         live.onConnection = {[weak self] connected in Task { @MainActor in guard let self else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile();self.onUpdate?()}}}
-        live.start();refresh(); timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in Task { @MainActor in self?.refresh() }}; updatePermission() }
+        live.start();refresh(); timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in Task { @MainActor in self?.refresh() }};timer?.tolerance=0.3; updatePermission() }
     func updatePermission() { UNUserNotificationCenter.current().getNotificationSettings { settings in Task { @MainActor in self.notificationStatus = settings.authorizationStatus == .authorized ? L10n.text("알림 켜짐") : L10n.text("알림 허용 필요") } } }
     func requestNotifications() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -328,7 +328,7 @@ struct LocalReader {
             let chronological=found.sorted{a,b in a.startedAt==b.startedAt ? a.turn<b.turn:a.startedAt<b.startedAt}
             if currentPolicy.started==0 {if let newest=chronological.last{followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}}
             else{for job in chronological{followNewTurn(id:job.id,turn:job.turn,started:job.startedAt)}}
-            live.observe(found.map(\.id));reconcile();error=nil;baseline=true
+            live.observe(found.map(\.id));reconcile();if error != nil {error=nil};baseline=true
             if isAway,!screensAsleep,CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)<300 {setAway(false)}
         case .failure(let e): error=e.localizedDescription }
         onUpdate?()
@@ -336,7 +336,7 @@ struct LocalReader {
     func receive(_ id:String,_ state:LiveState) {
         let old=liveStates[id]
         if let latest=state.latestTurn,let raw=rawJobs.first(where:{$0.id==id}),latest.id != raw.turn,latest.started/1000 < raw.startedAt {return}
-        if lastActivity[id]==nil || (old != nil && (old!.activityRevision != state.activityRevision || old!.latestTurn?.id != state.latestTurn?.id || old!.waiting != state.waiting)) {lastActivity[id]=Date()}
+        if lastActivity[id]==nil || (old != nil && (old!.activityRevision != state.activityRevision || old!.latestTurn?.id != state.latestTurn?.id || old!.waiting != state.waiting)) {if Date().timeIntervalSince(lastActivity[id] ?? .distantPast)>=1 {lastActivity[id]=Date()}}
         if let latest=state.latestTurn,rawJobs.contains(where:{$0.id==id}){followNewTurn(id:id,turn:latest.id,started:latest.started/1000)}
         if let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
             latest.id != prior.id || latest.status != prior.status,let raw=rawJobs.first(where:{$0.id==id}) {
@@ -352,7 +352,8 @@ struct LocalReader {
         reconcile();onUpdate?()
     }
     func reconcile(){
-        jobs=rawJobs.map {raw in
+        let oldWaitTimes=waitTimes
+        let reconciled=rawJobs.map {raw in
             var job=raw
             if let liveState=liveStates[raw.id] {
                 // Never let an old stream snapshot overwrite a newer persisted turn.
@@ -385,8 +386,10 @@ struct LocalReader {
             if ar==0 && br==0,a.element.waitSince != b.element.waitSince{return (a.element.waitSince ?? .distantFuture)<(b.element.waitSince ?? .distantFuture)}
             return ar==br ? a.offset<b.offset:ar<br
         }.map(\.element)
+        if jobs != reconciled {jobs=reconciled}
         if waitTimes.count>500 {waitTimes=Dictionary(uniqueKeysWithValues:waitTimes.sorted{$0.value>$1.value}.prefix(300).map{($0.key,$0.value)})}
-        MotePreferences.store.set(waitTimes,forKey:"waitTimes");clearResolvedAlerts()
+        if waitTimes != oldWaitTimes {MotePreferences.store.set(waitTimes,forKey:"waitTimes")}
+        clearResolvedAlerts()
     }
     var openURL:(URL)->Bool = {NSWorkspace.shared.open($0)}
     static func conversationURL(_ id:String)->URL? {
@@ -408,7 +411,7 @@ struct Dust: View {
     var status:String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body:some View{
-        TimelineView(.animation(minimumInterval:0.2,paused:reduceMotion)){context in
+        TimelineView(.periodic(from:.now,by:reduceMotion ? 3600:0.2)){context in
             let frame=reduceMotion ? 0:Int(context.date.timeIntervalSince1970*5)%4
             Image(nsImage:MenuFairy.portrait(state:status,frame:frame)).resizable().interpolation(.high).scaledToFit()
         }.accessibilityLabel(["approval":L10n.text("승인을 기다리는 요정"),"answer":L10n.text("답변을 기다리는 요정"),"unread":L10n.text("새 답변을 배달하는 요정"),"failed":L10n.text("오류를 알리는 요정"),"inProgress":L10n.text("작업 중인 요정")][status] ?? L10n.text("쉬는 요정"))
@@ -423,11 +426,17 @@ enum Palette {
         appearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor(calibratedRed:0.57,green:0.61,blue:0.46,alpha:1) : NSColor(calibratedRed:0.37,green:0.41,blue:0.29,alpha:1)
     })
 }
-final class MotePanel: NSPanel { override var canBecomeKey:Bool { true }; override func cancelOperation(_ sender:Any?) { orderOut(nil) } }
+final class MotePanel: NSPanel {
+    override var canBecomeKey:Bool { true }
+    // The panel is rebuilt on open. Release hidden SwiftUI timelines rather than
+    // leaving animations/layout subscribed while only the menu bar is visible.
+    override func orderOut(_ sender:Any?) { super.orderOut(sender); contentView=nil }
+    override func cancelOperation(_ sender:Any?) { orderOut(nil) }
+}
 struct RunningIndicator:View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body:some View {
-        TimelineView(.animation(minimumInterval:0.1,paused:reduceMotion)){context in
+        TimelineView(.periodic(from:.now,by:reduceMotion ? 3600:0.2)){context in
             let phase=reduceMotion ? 0:context.date.timeIntervalSince1970
             ZStack {
                 Circle().stroke(Palette.olive.opacity(0.14),lineWidth:2)
@@ -441,7 +450,7 @@ struct RunningCaption:View {
     var project:String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body:some View {
-        TimelineView(.animation(minimumInterval:0.25,paused:reduceMotion)){context in
+        TimelineView(.periodic(from:.now,by:reduceMotion ? 3600:0.33)){context in
             let step=Int(context.date.timeIntervalSince1970*3)%3
             HStack(spacing:5){Text(L10n.text("{0} · 작업 중", [String(describing: project)]));HStack(spacing:3){ForEach(0..<3){i in
                 Circle().fill(Palette.olive.opacity(reduceMotion || i==step ? 0.85:0.20)).frame(width:3,height:3)
@@ -596,7 +605,7 @@ struct CompactPanel:View {
         panel.isOpaque=false;panel.backgroundColor = .clear;panel.hasShadow=true;panel.level = .floating
         panel.isMovableByWindowBackground=true;panel.hidesOnDeactivate=false
         panel.standardWindowButton(.closeButton)?.isHidden=true;panel.standardWindowButton(.miniaturizeButton)?.isHidden=true;panel.standardWindowButton(.zoomButton)?.isHidden=true
-        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);self.item.button?.title = self.monitor.error != nil ? L10n.text(" 확인 필요") : " "+self.monitor.menuSummary}
+        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);let title=self.monitor.error != nil ? L10n.text(" 확인 필요") : " "+self.monitor.menuSummary;if self.item.button?.title != title {self.item.button?.title=title}}
         monitor.onOpenInbox = {[weak self] in guard let self else{return};if !self.panel.isVisible{self.toggle()}}
         outsideClickMonitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]){[weak self] _ in Task{@MainActor in self?.panel.orderOut(nil)}}
         localClickMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]){[weak self] event in
