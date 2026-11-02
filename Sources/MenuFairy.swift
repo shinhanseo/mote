@@ -31,7 +31,7 @@ import AppKit
     }
     private static var portraitAssets=[String:NSImage]()
     static func portrait(state:String,frame:Int)->NSImage {
-        let name=state=="idle" ? "mote-dust-sleep":"mote-dust-soft"
+        let name=state=="idle" ? "mote-dust-sleep-\(frame)":"mote-dust-soft"
         if portraitAssets[name]==nil,let url=Bundle.main.url(forResource:name,withExtension:"svg"),let asset=NSImage(contentsOf:url){portraitAssets[name]=asset}
         guard let asset=portraitAssets[name] else{return image(state:state,frame:frame)}
         return NSImage(size:NSSize(width:200,height:160),flipped:false){_ in

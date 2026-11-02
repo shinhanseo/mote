@@ -21,7 +21,7 @@ if [[ ! -f Resources/Mote.icns || Tools/GenerateIcon.swift -nt Resources/Mote.ic
   iconutil -c icns "$icon_dir/Mote.iconset" -o Resources/Mote.icns
 fi
 cp Resources/Mote.icns "$app_path/Contents/Resources/"
-cp website/assets/mote-dust-soft.svg website/assets/mote-dust-sleep.svg "$app_path/Contents/Resources/"
+cp website/assets/mote-dust-soft.svg website/assets/mote-dust-sleep*.svg "$app_path/Contents/Resources/"
 cat > "$app_path/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

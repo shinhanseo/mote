@@ -15,3 +15,7 @@
 .demo-stage[data-state=idle] .product-fairy:before{background-image:url('assets/mote-dust-sleep.svg')}
 .demo-stage[data-state=idle] .product-fairy{animation:dust-breathe 4s ease-in-out infinite;transform:rotate(8deg)}
 @keyframes dust-breathe{0%,100%{scale:1;translate:0 0}50%{scale:1.035;translate:0 -2px}}
+
+.demo-stage[data-state=idle] .product-fairy:before{animation:sleep-mouth 1.6s steps(1,end) infinite}
+@keyframes sleep-mouth{0%,100%{background-image:url('assets/mote-dust-sleep-0.svg')}25%,75%{background-image:url('assets/mote-dust-sleep-1.svg')}50%{background-image:url('assets/mote-dust-sleep-2.svg')}}
+@media(prefers-reduced-motion:reduce){.demo-stage[data-state=idle] .product-fairy:before{animation:none}}
