@@ -68,7 +68,7 @@ MOTE_NOTARY_PROFILE='your-profile' Tools/release.sh
 
 The script enables hardened runtime signing, submits the zip, staples/validates the ticket and checks Gatekeeper before producing `release/Mote-VERSION.zip`. No credentials are checked into this repository. A development certificate alone cannot produce this external-distribution build. Public releases are not published automatically.
 
-For first-release account setup, universal DMG creation and verified website publication, see [DISTRIBUTION.md](DISTRIBUTION.md).
+For first-release account setup, universal DMG creation and verified website publication, see [DISTRIBUTION.md](../DISTRIBUTION.md).
 
 ### 로컬 사용량 대시보드
 

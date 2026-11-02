@@ -40,14 +40,14 @@
 
 ## Mac에서 시작하기
 
-1. **[최신 릴리스](https://github.com/shinhanseo/mote/releases/latest)**에서 `Mote-버전.dmg`를 내려받아요.
+1. [최신 릴리스](https://github.com/shinhanseo/mote/releases/latest)에서 `Mote-버전.dmg`를 내려받아요.
 2. DMG를 열고 **Mote를 응용 프로그램 폴더**로 옮겨요.
 3. Mote를 실행하고 알림을 허용한 뒤, Codex Desktop에서 평소처럼 작업하세요.
 
 **macOS 14 이상 · Apple Silicon / Intel · Codex Desktop 필요**  
 공개 배포본은 Developer ID 서명과 Apple 공증을 마쳤어요. 현재 무료로 사용할 수 있어요.
 
-**다음 업데이트는 앱 안에서.** Mote 0.4.0 이상은 설정의 **‘업데이트 확인 및 설치’**에서 다운로드·설치·재실행까지 진행해요. 0.3.1 이하는 한 번 수동 교체가 필요해요. DMG 안에서 직접 실행하지 말고 응용 프로그램 폴더로 옮겨주세요.
+**다음 업데이트는 앱 안에서.** Mote 0.4.0 이상은 설정의 ‘업데이트 확인 및 설치’에서 다운로드·설치·재실행까지 진행해요. 0.3.1 이하는 한 번 수동 교체가 필요해요. DMG 안에서 직접 실행하지 말고 응용 프로그램 폴더로 옮겨주세요.
 
 ## 당신의 작업은, 당신의 Mac에.
 
