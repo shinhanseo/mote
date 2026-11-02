@@ -1,50 +1,80 @@
 <div align="center">
 
-<img src="website/assets/mote-dust-soft.svg" width="150" alt="Mote, a little black dust companion">
+<img src="website/assets/mote-dust-soft.svg" width="190" alt="Mote, a little black dust companion">
 
-# Mote
+# A little dust. A little less checking.
 
-**When Codex needs you, Mote lets you know.**  
-A little companion in your Mac menu bar. Task done, approval needed, or a question waiting — keep working until you are needed.
+**When Codex needs you, Mote lets you know.**
 
-[**Download for Mac ↓**](https://github.com/shinhanseo/mote/releases/latest) · [Website & interactive demo ↗](https://shinhanseo.github.io/mote/en/) · [한국어](README.md)
+[**Download for Mac ↓**](https://github.com/shinhanseo/mote/releases/latest)　 /　 [Website ↗](https://shinhanseo.github.io/mote/en/)　 /　 [한국어](README.md)
 
-macOS 14+ · Apple Silicon & Intel · Free & open source
+<sub>macOS 14+ · Apple Silicon / Intel · Free · No account or API key</sub>
+
+<br><br>
+
+![Mote moves from working to waiting for input to a new reply, with short notifications](docs/assets/mote-demo-en.gif)
+
+<sub>Illustrative animation with an example conversation.</sub>
+
+[Try the interactive demo →](https://shinhanseo.github.io/mote/en/#demo)
 
 </div>
 
-## Stay in your flow
+<br>
 
-- **Catch approval and input waits.** Distinct states, short notifications, and wait durations.
-- **Keep several chats in view.** Pin chats, spot unread replies and errors, and open the right Codex conversation.
-- **Get alerts where you work.** Choose the pointer display, primary display, another connected screen, or macOS system notifications.
-- **Come back when ready.** Ten-minute snooze, wait reminders, and a summary of unresolved tasks when you return.
-- **Jump back with the keyboard.** Control+Option+Space opens the oldest waiting chat; customize or disable it in Settings.
-- **Check usage on demand.** Collapsed five-hour and weekly limits, reset estimates, and threshold alerts, based on local records.
-- **Know when state is uncertain.** Network-path warnings, last activity, and long-silent tasks.
-- **Keep titles private.** Privacy mode hides chat titles, projects and request details. English and Korean interfaces are included.
+### 01　Keep working. Stop checking.
 
-Usage records can be stale or differ from actual limits. Reset alerts are time estimates. Away handling is separate from macOS Focus integration.
+See working sessions, approvals, questions, and unread replies at a glance.  
+Watch several conversations and keep the ones you need pinned, even after they finish.
 
-## Install once. Update in the app.
+### 02　Right where you are.
 
-1. Download the DMG from the [latest release](https://github.com/shinhanseo/mote/releases/latest).
-2. Drag Mote to **Applications**, then launch it and allow notifications.
+Receive short alerts on the display you choose. Click to open the conversation.  
+Snooze for ten minutes, or jump back with `Control+Option+Space`.
+
+### 03　Your work stays on your Mac.
+
+Local detection, with no Mote account or API key.  
+Mote does not send code or conversations to its own server, approve actions, or reply for you.
+
+<br>
+
+---
+
+### A little companion. Right in your menu bar.
+
+**[Download the latest release ↓](https://github.com/shinhanseo/mote/releases/latest)**  
+Open the DMG, move Mote to Applications, and launch it. Requires Codex Desktop.  
+Developer ID signed · Apple notarized · Future updates install in the app.
+
+<br>
+
+<details>
+<summary><b>Installation and updates</b></summary>
+
+1. Download the DMG from the latest release.
+2. Drag Mote to Applications, launch it, and allow notifications.
 3. Work in Codex Desktop as usual.
 
-Public releases are Developer ID signed and Apple notarized. Requires macOS 14+ and Codex Desktop.
+On Mote 0.4.0+, choose **Check for updates and install** in Settings to download, install and relaunch. Users on 0.3.1 or earlier need one manual replacement. Do not run Mote from the mounted DMG.
 
-On Mote **0.4.0+**, choose **Check for updates and install** in Settings to download, install and relaunch. Users on 0.3.1 or earlier need one manual replacement. Do not run the app from the mounted DMG.
+</details>
 
-## Your work stays on your Mac
+<details>
+<summary><b>Usage, notifications and privacy</b></summary>
 
-Mote reads local Codex records and session state. It does not send code or conversations to a Mote server, require an account or API key, or approve actions and send replies for you. Update checks and installation contact GitHub Releases and the signed appcast on the Mote website. Codex's own AI service is separate.
+Mote includes five-hour and weekly usage snapshots, reset estimates, threshold alerts, wait reminders, snooze, away summaries, last activity, and privacy mode. English and Korean are supported.
 
-Detection relies on private, version-dependent Codex Desktop data formats. Codex updates may require compatibility fixes; check Mote Diagnostics or [report an issue](https://github.com/shinhanseo/mote/issues). Other AI tools and iPhone pairing are not currently supported.
+Usage comes from local records and can differ from actual limits. Reset alerts are estimates. Direct macOS Focus integration, other AI tools and iPhone pairing are not currently supported.
 
-## Build from source
+Update checks and installation contact GitHub Releases and the signed appcast on the Mote website. Codex's own AI service is separate. Detection relies on private, version-dependent Codex Desktop formats and may need compatibility fixes. Check Diagnostics or [report an issue](https://github.com/shinhanseo/mote/issues).
 
-Requires Xcode command-line tools.
+</details>
+
+<details>
+<summary><b>Build from source and technical notes</b></summary>
+
+Requires macOS 14+ and Xcode command-line tools.
 
 ```sh
 git clone https://github.com/shinhanseo/mote.git
@@ -55,6 +85,22 @@ open Mote.app
 
 Default local builds are ad-hoc signed, not notarized.
 
-[Technical notes & tests](docs/DEVELOPMENT.md) · [Signing & distribution](DISTRIBUTION.md) · [Releases](https://github.com/shinhanseo/mote/releases)
+[Technical notes & tests](docs/DEVELOPMENT.md) · [Signing & distribution](DISTRIBUTION.md)
 
-Independent app. Not affiliated with OpenAI.
+Regenerate the illustrative animation: `swift Tools/GenerateReadmeDemo.swift --english`
+
+</details>
+
+<br>
+
+<div align="center">
+
+<sub>[Releases](https://github.com/shinhanseo/mote/releases)　·　[Feedback](https://github.com/shinhanseo/mote/issues)　·　[Website](https://shinhanseo.github.io/mote/en/)</sub>
+
+<br>
+
+**A little dust, looking out for you.**
+
+<sub>Independent app. Not affiliated with OpenAI.</sub>
+
+</div>
