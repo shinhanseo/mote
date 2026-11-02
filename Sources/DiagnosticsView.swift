@@ -14,11 +14,12 @@ struct DiagnosticsView:View {
             Divider()
             Text("Mote \(updates.version)").font(.headline)
             Text(L10n.text("설정과 작업 상태는 이 Mac에 저장돼요.")).font(.caption).foregroundStyle(.secondary)
+            Button(L10n.text("업데이트 확인 및 설치")){updates.installUpdate()}
             Button(updates.checking ? L10n.text("확인 중…"):L10n.text("업데이트 확인")){updates.check()}.disabled(updates.checking)
             Toggle(L10n.text("새 배포 버전 자동 확인"),isOn:$updates.automatic)
             if updates.available {
-                HStack{Button(L10n.text("새 버전 다운로드")){updates.openDownload()};Button(L10n.text("변경 내용")){updates.openNotes()}}
-                Text(L10n.text("Mote를 종료하고 DMG의 앱으로 기존 앱을 대치해 주세요. 설정은 유지돼요.")).font(.caption).foregroundStyle(.secondary)
+                HStack{Button(L10n.text("앱에서 업데이트")){updates.installUpdate()};Button(L10n.text("변경 내용")){updates.openNotes()}}
+                Text(L10n.text("서명된 업데이트를 내려받아 설치하고 Mote를 다시 실행해요. 설치 전 확인 창이 표시됩니다.")).font(.caption).foregroundStyle(.secondary)
             }
             if !updates.message.isEmpty{Text(L10n.text(updates.message)).font(.caption).foregroundStyle(.secondary)}
             Text(L10n.text("업데이트 확인은 GitHub 공개 릴리스에만 접속해요. 자동 확인을 켜면 실행 중 6시간마다 확인하며, 대화 내용은 보내지 않아요.")).font(.system(size:11)).foregroundStyle(.secondary)

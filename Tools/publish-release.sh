@@ -28,9 +28,11 @@ Mote $version — Codex Desktop companion for macOS.
 
 Checksums are provided in SHA256SUMS.txt.
 EOF_NOTES
+./Tools/prepare-appcast.sh
 gh release create "$tag" "release/Mote-$version.dmg" "release/Mote-$version.zip" release/SHA256SUMS.txt --repo shinhanseo/mote --target "$(git rev-parse HEAD)" --title "Mote $version" --notes-file release/release-notes.md --latest
+cp release/appcast.xml website/appcast.xml
 python3 Tools/enable-website-download.py release/verified-release.json
-git add website/index.html website/README.md website/en/index.html
+git add website/index.html website/README.md website/en/index.html website/appcast.xml
 git commit -m "Enable website download for notarized Mote $version"
 git push origin main
 print '공개 릴리스와 웹 다운로드 연결 완료'

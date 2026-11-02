@@ -8,3 +8,5 @@ DerivedData/
 .env.*
 
 release/
+
+Vendor/

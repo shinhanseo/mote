@@ -17,6 +17,9 @@ enum L10n {
         return value
     }
     static let english:[String:String] = [
+        "업데이트 확인 및 설치":"Check for Updates & Install",
+        "앱에서 업데이트":"Update in App",
+        "서명된 업데이트를 내려받아 설치하고 Mote를 다시 실행해요. 설치 전 확인 창이 표시됩니다.":"Download a signed update, install it, and relaunch Mote. You will confirm before installation.",
         "배포 버전 확인 중…":"Checking published releases…",
         "새 버전 {0}을 사용할 수 있어요.":"Version {0} is available.",
         "최신 배포 버전을 사용하고 있어요.":"You are running the latest release.",

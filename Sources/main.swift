@@ -453,7 +453,7 @@ struct UpdateNotice:View {
     @ObservedObject var updates:UpdateChecker
     var body:some View {
         if updates.available,let release=updates.release {
-            HStack{Text(L10n.text("새 버전 {0}",[release.version])).font(.caption);Spacer();Button(L10n.text("다운로드")){updates.openDownload()};Button(L10n.text("변경 내용")){updates.openNotes()}}.font(.caption).padding(10).background(Palette.olive.opacity(0.08),in:RoundedRectangle(cornerRadius:9))
+            HStack{Text(L10n.text("새 버전 {0}",[release.version])).font(.caption);Spacer();Button(L10n.text("앱에서 업데이트")){updates.installUpdate()};Button(L10n.text("변경 내용")){updates.openNotes()}}.font(.caption).padding(10).background(Palette.olive.opacity(0.08),in:RoundedRectangle(cornerRadius:9))
         }
     }
 }

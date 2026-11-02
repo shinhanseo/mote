@@ -85,3 +85,7 @@ For first-release account setup, universal DMG creation and verified website pub
 ### Language / 언어
 
 The development app supports English and Korean. It follows the first preferred macOS language by default (Korean for ko, English otherwise). Choose System, 한국어, or English in Mote Settings; the choice is saved and applies to status labels, notifications, settings, usage, and diagnostics. User chat titles are not translated. The website offers Korean at `/mote/` and English at `/mote/en/`, with a persistent language switch. Public download links are changed only after a new notarized release passes verification.
+
+### In-app installation (0.4.0+)
+Mote embeds Sparkle 2.10.1. Settings → Check for Updates & Install downloads a signed update, asks before installation, replaces the app, and relaunches it. Updates use an HTTPS appcast, Ed25519-signed feed/archive, and Developer ID signing/notarization. Private keys remain in the developer's Keychain, never this repository. Users on 0.3.1 or earlier need one manual replacement first. Keep Mote in Applications, not on a mounted DMG.
+Builds download a pinned official Sparkle archive and verify its SHA-256. Release publishing generates and verifies the signed appcast before publishing it with the website.

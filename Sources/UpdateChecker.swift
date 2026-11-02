@@ -25,6 +25,8 @@ struct PublishedRelease {
     }
 }
 @MainActor final class UpdateChecker:ObservableObject {
+    let installer=InstallerUpdater()
+    func installUpdate(){installer.checkAndInstall()}
     @Published var message=""
     @Published var checking=false
     @Published var available=false
