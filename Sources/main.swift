@@ -341,7 +341,7 @@ struct Dust: View {
     var body:some View{
         TimelineView(.animation(minimumInterval:0.2,paused:status=="idle" || reduceMotion)){context in
             let frame=reduceMotion ? 0:Int(context.date.timeIntervalSince1970*5)%4
-            Image(nsImage:MenuFairy.image(state:status,frame:frame)).resizable().interpolation(.high).scaledToFit()
+            Image(nsImage:MenuFairy.portrait(state:status,frame:frame)).resizable().interpolation(.high).scaledToFit()
         }.accessibilityLabel(["approval":"승인을 기다리는 요정","answer":"답변을 기다리는 요정","unread":"새 답변을 배달하는 요정","failed":"오류를 알리는 요정","inProgress":"작업 중인 요정"][status] ?? "쉬는 요정")
     }
 }

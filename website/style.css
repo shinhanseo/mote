@@ -11,3 +11,7 @@
 .demo-stage[data-state=approval] .product-fairy{animation:sketch-nudge 1.2s ease-in-out infinite}
 @keyframes sketch-nudge{0%,100%{rotate:-5deg;translate:0 0}50%{rotate:5deg;translate:0 -4px}}
 @media(prefers-reduced-motion:reduce){.fairy{animation:none!important}}
+
+.demo-stage[data-state=idle] .product-fairy:before{background-image:url('assets/mote-dust-sleep.svg')}
+.demo-stage[data-state=idle] .product-fairy{animation:dust-breathe 4s ease-in-out infinite;transform:rotate(8deg)}
+@keyframes dust-breathe{0%,100%{scale:1;translate:0 0}50%{scale:1.035;translate:0 -2px}}
