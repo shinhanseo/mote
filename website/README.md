@@ -27,3 +27,5 @@ The website lives beside the Swift app in the same Git repository but runs and d
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.2.0/Mote-0.2.0.dmg
 
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.3.0/Mote-0.3.0.dmg
+
+Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.3.1/Mote-0.3.1.dmg
