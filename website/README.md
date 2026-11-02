@@ -31,3 +31,5 @@ Public notarized download: https://github.com/shinhanseo/mote/releases/download/
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.3.1/Mote-0.3.1.dmg
 
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.0/Mote-0.4.0.dmg
+
+Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.1/Mote-0.4.1.dmg
