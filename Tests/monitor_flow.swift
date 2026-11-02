@@ -80,6 +80,13 @@ MainActor.assumeIsolated {
     expect(UsageSnapshot.parse(Data("{}".utf8))==nil,"missing quota is unavailable, not zero")
     var invalid=usageEvent;invalid["payload"]=["rate_limits":["primary":["used_percent":101,"window_minutes":300]]]
     expect(UsageSnapshot.parse(try! JSONSerialization.data(withJSONObject:invalid))==nil,"reject invalid percentages")
+    let resetNow=Date(timeIntervalSince1970:1000)
+    var resetPolicy=UsageResetPolicy(pending:["300":1001,"10080":1001],delivered:[])
+    expect(resetPolicy.due(now:resetNow,short:true,weekly:true).isEmpty,"reset cannot notify early")
+    expect(resetPolicy.due(now:resetNow.addingTimeInterval(2),short:true,weekly:false)==[300],"independent reset switches")
+    expect(resetPolicy.due(now:resetNow.addingTimeInterval(3),short:true,weekly:true).isEmpty,"reset delivered only once")
+    resetPolicy.pending=["300":1]
+    expect(resetPolicy.due(now:resetNow,short:true,weekly:true).isEmpty,"skip old reset after sleep")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

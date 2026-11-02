@@ -71,7 +71,22 @@ struct LocalReader {
         usageLoading=true;lastUsageRead=Date()
         Task.detached{let snapshot=UsageSnapshot.read();await self.applyUsage(snapshot)}
     }
-    func applyUsage(_ snapshot:UsageSnapshot?){usage=snapshot;usageLoading=false}
+    @Published var shortResetAlerts=MotePreferences.store.object(forKey:"shortResetAlerts") as? Bool ?? true {didSet{MotePreferences.store.set(shortResetAlerts,forKey:"shortResetAlerts")}}
+    @Published var weeklyResetAlerts=MotePreferences.store.object(forKey:"weeklyResetAlerts") as? Bool ?? true {didSet{MotePreferences.store.set(weeklyResetAlerts,forKey:"weeklyResetAlerts")}}
+    var resetPolicy=UsageResetPolicy(pending:MotePreferences.store.dictionary(forKey:"usageResetPending") as? [String:Double] ?? [:],delivered:Set(MotePreferences.store.stringArray(forKey:"usageResetDelivered") ?? []))
+    func applyUsage(_ snapshot:UsageSnapshot?){
+        usage=snapshot;usageLoading=false
+        if let snapshot {resetPolicy.observe(snapshot,now:Date())}
+        checkUsageResets()
+    }
+    func checkUsageResets(){
+        let due=resetPolicy.due(now:Date(),short:shortResetAlerts && !muted && !paused,weekly:weeklyResetAlerts && !muted && !paused)
+        MotePreferences.store.set(resetPolicy.pending,forKey:"usageResetPending")
+        MotePreferences.store.set(Array(resetPolicy.delivered),forKey:"usageResetDelivered")
+        for minutes in due {
+            deliver([],title:"모트 · \(minutes==300 ? "5시간":"주간") 한도",body:"초기화 예정 시각이 됐어요 · 실제 잔여량은 Codex에서 확인해 주세요.",sound:completionSound,identifier:"quota-reset:\(minutes):\(Int(Date().timeIntervalSince1970))")
+        }
+    }
     let updates=UpdateChecker()
     var completionQueue=[Job]()
     var completionTask:Task<Void,Never>?
@@ -199,6 +214,7 @@ struct LocalReader {
         }
     }
     func refresh() {
+        checkUsageResets()
         refreshUsage()
         guard !reading else{return}; reading=true
         let currentIDs=Set(pinnedIDs)
@@ -405,6 +421,9 @@ struct Panel:View {
             Toggle("작업 완료 알림",isOn:$model.completionAlerts)
             Toggle("완료·오류 알림 소리",isOn:$model.completionSound)
             Toggle("오류 알림",isOn:$model.errorAlerts)
+            Toggle("5시간 한도 초기화 시각 알림",isOn:$model.shortResetAlerts)
+            Toggle("주간 한도 초기화 시각 알림",isOn:$model.weeklyResetAlerts)
+            Text("모트 실행 중, 미리 확인한 초기화 시각에 한 번 알려줘요. 실제 한도 갱신을 보장하지 않으며 10분 이상 지난 알림은 생략해요.").font(.system(size:10)).foregroundStyle(.secondary)
             Button(model.paused ? "알림 다시 켜기":"30분 동안 알림 쉬기"){if model.paused{model.resume()}else{model.pause()}}
             Text("작업 상태는 알림을 쉬는 동안에도 계속 표시돼요.").font(.caption).foregroundStyle(.secondary)
             Text("자동 실행은 앱을 고정된 위치에 두고 설정하세요.").font(.caption).foregroundStyle(.secondary)
