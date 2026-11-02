@@ -10,7 +10,7 @@ From the repository root:
 python3 -m http.server 4173 --bind 127.0.0.1 --directory website
 ```
 
-Open http://127.0.0.1:4173. `index.html` can also be opened directly; there is no build step, JavaScript dependency, analytics, account or backend. Demo controls only change the page and never connect to Codex. All illustrated task names are fictional.
+Open http://127.0.0.1:4173. `index.html` can also be opened directly; there is no build step, build dependencies or backend. Website-only GA4 analytics is configured separately below. Demo controls only change the page and never connect to Codex. All illustrated task names are fictional.
 
 ## Before publishing
 
@@ -33,3 +33,11 @@ Public notarized download: https://github.com/shinhanseo/mote/releases/download/
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.0/Mote-0.4.0.dmg
 
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.1/Mote-0.4.1.dmg
+
+## Website analytics
+
+GA4 measurement ID: `G-XK24RFR4W6`. Enhanced measurement is disabled; `analytics.js` explicitly sends page views and `download_click` events for GitHub DMG links. Visitors and attribution are estimates; clicks do not prove downloads or installations. No analytics is embedded in the Mac app.
+
+Exclude the current browser before measuring: open `https://shinhanseo.github.io/mote/analytics.html#exclude`. Confirm the exclusion status. This persists in `mote.analytics.excluded` localStorage, covers KO/EN, and prevents loading the Google tag. Clearing site data or switching browsers requires exclusion again. DNT/GPC and non-production hosts are excluded. Settings-page visits are never counted.
+
+Reports: GA4 Mote Website → Reports → acquisition (source/medium), engagement → events (`download_click`), or Realtime for initial validation. Campaign links may use public `utm_source`, `utm_medium`, `utm_campaign` tags. Do not put personal data in tags. Example: `https://shinhanseo.github.io/mote/?utm_source=syde&utm_medium=community&utm_campaign=launch`.
