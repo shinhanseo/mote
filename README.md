@@ -1,12 +1,12 @@
 <div align="center">
 
-![Mote — Codex가 기다릴 때, 모트가 알려줘요.](docs/assets/mote-banner.svg)
+![Mote — Codex가 기다릴 때, 모트가 알려줘요.](docs/assets/mote-hero.svg)
 
 [**Mac용 다운로드 ↓**](https://github.com/shinhanseo/mote/releases/latest)　 /　 [홈페이지 ↗](https://shinhanseo.github.io/mote/)　 /　 [English](README.en.md)
 
 <sub>macOS 14+ · Apple Silicon / Intel · 무료 · 계정과 API 키 없이</sub>
 
-<br><br>
+<br>
 
 ### Codex에 일을 맡기고, 당신은 하던 일을.
 

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="410" viewBox="0 0 1200 410">
+<rect width="1200" height="410" rx="24" fill="#f7f7f2"/>
+<g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif">
+<text x="62" y="66" font-size="29" font-weight="750" fill="#292b27">mote.</text>
+<text x="62" y="122" font-size="11" letter-spacing="2" fill="#687454">A LITTLE COMPANION FOR CODEX</text>
+<text x="62" y="190" font-size="48" font-weight="650" fill="#252820">Codex가 기다릴 때,</text>
+<text x="62" y="247" font-size="48" font-weight="650" fill="#252820">모트가 알려줘요.</text>
+<text x="62" y="295" font-size="17" fill="#707667">필요한 순간에만, 메뉴바의 작은 먼지가 불러줄게요.</text>
+<text x="62" y="343" font-size="13" fill="#687454">A little dust. A little less checking.</text>
+
+
+
+</g>
+<ellipse cx="929" cy="355" rx="90" ry="4" fill="#dedfd5"/>
+<svg x="750" y="75" width="380" height="304" viewBox="0 0 200 160" fill="none">
+<g stroke="#292b27" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+<path d="M49 100Q38 103 33 110Q38 111 49 107M150 101Q161 103 166 110Q160 111 150 107" fill="#292b27"/>
+<path d="M48 58C43 47 52 37 63 39C64 27 78 25 86 32C95 21 108 23 114 32C127 26 138 33 139 44C153 43 160 54 154 65C166 73 165 86 157 93C165 106 156 118 145 119C144 132 131 138 121 132C112 144 98 143 91 134C79 144 65 137 62 126C48 130 38 118 42 107C29 100 32 85 39 79C33 68 39 60 48 58Z" fill="#292b27"/>
+</g>
+<g fill="#fffef5">
+<ellipse cx="78" cy="76" rx="9" ry="12" transform="rotate(-5 78 76)"/>
+<ellipse cx="118" cy="75" rx="9" ry="12" transform="rotate(5 118 75)"/>
+</g>
+<g fill="#292b27"><ellipse cx="80" cy="78" rx="3.4" ry="5"/><ellipse cx="120" cy="77" rx="3.4" ry="5"/></g>
+<path d="M91 102Q98 109 106 102" stroke="#fffef5" stroke-width="2.8" stroke-linecap="round"/>
+</svg>
+
+</svg>

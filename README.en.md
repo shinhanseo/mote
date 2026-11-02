@@ -10,7 +10,7 @@
 
 <sub>macOS 14+ · Apple Silicon / Intel · Free · No account or API key</sub>
 
-<br><br>
+<br>
 
 ![Mote moves from working to waiting for input to a new reply, with short notifications](docs/assets/mote-demo-en.gif)
 
