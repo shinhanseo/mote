@@ -38,7 +38,7 @@ import AppKit
             let bob:CGFloat=state=="inProgress" ? [0,2,0,-2][frame]:0
             asset.draw(in:NSRect(x:0,y:bob,width:200,height:160))
             if let label=["approval":"!","answer":"?","unread":"✉","failed":"!"][state] {
-                (label as NSString).draw(at:NSPoint(x:169,y:60+CGFloat(frame%2)*3),withAttributes:[.font:NSFont.systemFont(ofSize:20,weight:.medium),.foregroundColor:NSColor.labelColor])
+                (label as NSString).draw(at:NSPoint(x:163,y:74+CGFloat(frame%2)*3),withAttributes:[.font:NSFont.systemFont(ofSize:30,weight:.bold),.foregroundColor:NSColor.labelColor])
             }
             return true
         }

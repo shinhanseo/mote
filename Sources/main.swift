@@ -384,7 +384,11 @@ struct Panel:View {
     @ObservedObject var model:Monitor
     var headline:String {
         if model.networkAvailable==false{return "네트워크 연결을\n확인해 주세요."}
-        if model.waiting>0{return "\(model.waiting)개 작업이\n응답을 기다려요."}
+        if model.waiting>0 {
+            let approvals=model.jobs.filter{$0.status=="approval"}.count
+            let kind=approvals==model.waiting ? "승인을":approvals==0 ? "답변을":"응답을"
+            return "\(model.waiting)개 작업이\n\(kind) 기다려요."
+        }
         if model.unread>0{return "미확인 답변이\n\(model.unread)개 있어요."}
         if model.jobs.contains(where:{$0.status=="failed"}){return "확인이 필요한\n오류가 있어요."}
         return model.active>0 ? "\(model.active)개 작업이\n진행 중이에요.":"지금은 쉬고 있어요."
@@ -397,10 +401,10 @@ struct Panel:View {
                 if !model.currentJobs.isEmpty {
                     HStack{Label("고정한 대화 \(model.currentJobs.count)",systemImage:"pin.fill").font(.system(size:12,weight:.semibold)).foregroundStyle(.primary);Spacer();Button("완료 정리"){model.cleanCompleted()}.font(.system(size:11)).buttonStyle(.borderless)}
                     VStack(spacing:5){ForEach(model.currentJobs){current in
-                        HStack(spacing:5){row(current);Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help("작업 목록에서 빼기 · 대화는 삭제하지 않아요")}
+                        HStack(spacing:5){row(current);if !["approval","answer"].contains(current.status){Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help("고정 해제 · 대화는 삭제하지 않아요")}}
                     }}
                 }
-                HStack{Button("확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold);Button("감지한 대화 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular);Spacer()}.buttonStyle(.borderless)
+                HStack{Button("확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button("감지한 대화 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
                 VStack(alignment:.leading,spacing:4){
                     if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id)}){row($0)}}else{
                         ForEach(model.inboxJobs){row($0)}
@@ -414,7 +418,7 @@ struct Panel:View {
                     HStack(spacing:6){Image(systemName:"chart.bar");Text("사용량");Spacer();
                         if let snapshot=model.usage,let window=snapshot.windows.first,!window.expired(Date()),Date().timeIntervalSince(snapshot.recorded)<=900 {
                             Text("\(window.title) · \(window.remaining)% 남음").monospacedDigit()
-                        }else{Text("기록 확인")}
+                        }else{Text(model.usageLoading ? "사용량 확인 중…":model.usage == nil ? "사용량 기록 없음":"최근 기록 보기")}
                     }.font(.system(size:11)).foregroundStyle(.secondary)
                 }.padding(.top,8)
             }
@@ -424,20 +428,22 @@ struct Panel:View {
             if let error=model.error{Text(error).font(.caption).foregroundStyle(.orange)}
             if let message=model.settingsError{Text(message).font(.caption).foregroundStyle(.secondary)}
             Divider()
+            if model.notificationStatus=="알림 허용 필요" {
+                HStack{Label("macOS 알림이 허용되지 않았어요",systemImage:"exclamationmark.triangle").foregroundStyle(.orange);Spacer();Button("설정 열기"){model.requestNotifications()}}.font(.system(size:12,weight:.medium))
+            }
             HStack{Button(model.notificationStatus){model.requestNotifications()};Spacer();Menu{Button("새로고침"){model.refresh()};Button(model.paused ? "알림 다시 켜기":"30분 동안 알림 쉬기"){if model.paused{model.resume()}else{model.pause()}};Button("테스트 알림"){model.notify(Job(id:"test",title:"모트 알림이 정상 작동해요",project:"",status:"completed",turn:UUID().uuidString),test:true)};Button("종료"){NSApp.terminate(nil)}}label:{Image(systemName:"ellipsis").frame(width:30,height:28).accessibilityLabel("더 보기")}}.font(.system(size:12,weight:.medium)).foregroundStyle(.primary).buttonStyle(.borderless)
             if model.paused,let until=model.pauseUntil{HStack{Text("알림 쉬는 중 · \(until.formatted(date:.omitted,time:.shortened))까지");Spacer();Button("다시 켜기"){model.resume()}}.font(.caption).foregroundStyle(.secondary)}
         }.padding(23).frame(width:440).tint(Palette.olive)
     }
     func stateColor(_ status:String)->Color {
-        switch status {case "approval":return .orange;case "answer":return Color(red:0.30,green:0.43,blue:0.47);case "failed":return .red;default:return Palette.olive}
+        switch status {case "approval":return .orange;case "answer":return Color(red:0.16,green:0.43,blue:0.49);case "failed":return .red;default:return Palette.olive}
     }
     func row(_ job:Job)->some View {
         Button{model.open(job.id)}label:{
             HStack(spacing:11){Group{if job.status=="inProgress"{RunningIndicator()}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).foregroundStyle(stateColor(job.status)).background(stateColor(job.status).opacity(0.12),in:RoundedRectangle(cornerRadius:9))
-                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
-                    if let reason=job.reason{Text(reason).font(.caption).foregroundStyle(Palette.olive)}
+                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text("\(job.project) · \(job.reason ?? job.label)").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
                     if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}
-                };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.tertiary)
+                };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};if ["approval","answer"].contains(job.status){Label("열기",systemImage:"arrow.up.right").font(.system(size:12,weight:.semibold)).foregroundStyle(stateColor(job.status))}else{Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.secondary)}
             }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
         }.buttonStyle(.plain).help("Codex에서 \(job.title) 열기").contextMenu{Button("대화 고정"){model.makeCurrent(job.id)};
             if job.status=="unread"{Button("답변 나중에 보기"){model.deferReply(job)}}
