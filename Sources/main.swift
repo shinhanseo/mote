@@ -62,6 +62,15 @@ struct LocalReader {
     @Published var liveIssue:String?
     @Published var lastSync:Date?
     @Published var deferred=MotePreferences.store.dictionary(forKey:"deferredReplies") as? [String:String] ?? [:] {didSet{MotePreferences.store.set(deferred,forKey:"deferredReplies")}}
+    @Published var usage:UsageSnapshot?
+    @Published var usageLoading=false
+    private var lastUsageRead=Date.distantPast
+    func refreshUsage(force:Bool=false){
+        guard !usageLoading,force || Date().timeIntervalSince(lastUsageRead)>60 else{return}
+        usageLoading=true;lastUsageRead=Date()
+        Task.detached{let snapshot=UsageSnapshot.read();await self.applyUsage(snapshot)}
+    }
+    func applyUsage(_ snapshot:UsageSnapshot?){usage=snapshot;usageLoading=false}
     let updates=UpdateChecker()
     var completionQueue=[Job]()
     var completionTask:Task<Void,Never>?
@@ -189,6 +198,7 @@ struct LocalReader {
         }
     }
     func refresh() {
+        refreshUsage()
         guard !reading else{return}; reading=true
         let currentIDs=Set(pinnedIDs)
         Task.detached { let result = Result { try LocalReader.read(currentIDs:currentIDs) }; await self.apply(result) }
@@ -333,6 +343,7 @@ struct Panel:View {
             HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));Text(model.liveIssue != nil ? "기본 기록 감지":model.liveConnected ? "● 실시간 감지":"재연결 중").font(.caption).foregroundStyle(.secondary);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel("설정")}
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
+                UsageDashboard(model:model)
                 if !model.currentJobs.isEmpty {
                     HStack{Label("작업 중인 대화 \(model.currentJobs.count)",systemImage:"pin.fill").font(.caption).foregroundStyle(.secondary);Spacer();Button("완료 정리"){model.cleanCompleted()}.font(.system(size:11)).buttonStyle(.borderless)}
                     VStack(spacing:5){ForEach(model.currentJobs){current in

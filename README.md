@@ -69,3 +69,7 @@ MOTE_NOTARY_PROFILE='your-profile' Tools/release.sh
 The script enables hardened runtime signing, submits the zip, staples/validates the ticket and checks Gatekeeper before producing `release/Mote-0.2.0.zip`. No credentials are checked into this repository. A development certificate alone cannot produce this external-distribution build. Public releases are not published automatically.
 
 For first-release account setup, universal DMG creation and verified website publication, see [DISTRIBUTION.md](DISTRIBUTION.md).
+
+### 로컬 사용량 대시보드
+
+메인 패널에서 Codex의 5시간·주간 잔여 비율과 초기화 시각을 확인할 수 있습니다. 최근 30개 대화의 로컬 기록에서 최신 한도 스냅샷을 읽으며, 1분 간격으로 재확인합니다. 새로고침은 서버 조회를 실행하지 않습니다. 오래된 기록과 초기화 시각이 지난 기록을 표시하며, 기록이 없으면 값을 만들지 않습니다. 계정 전환 시 이전 계정의 기록이 남아 있을 수 있습니다. 토큰 개수나 비용 추정치는 제공하지 않습니다.

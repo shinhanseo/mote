@@ -73,6 +73,13 @@ MainActor.assumeIsolated {
     q.receive(running.id,async);expect(q.waiting==0,"submitted answer clears async wait")
     m.pause();m.notify(running);expect(delivered.count==1,"snooze suppresses notifications")
     m.resume();m.completionTask?.cancel()
+    let usageEvent:[String:Any] = ["timestamp":"2026-11-02T03:00:00.000Z","payload":["rate_limits":["limit_id":"codex","primary":["used_percent":35.0,"window_minutes":300,"resets_at":1793608967],"secondary":["used_percent":100.0,"window_minutes":10080]]]]
+    let usage=UsageSnapshot.parse(try! JSONSerialization.data(withJSONObject:usageEvent))!
+    expect(usage.windows[0].remaining==65 && usage.windows[1].remaining==0,"real remaining quota, not token balance")
+    expect(usage.windows[0].expired(Date.distantFuture),"elapsed reset must not pretend to have refilled")
+    expect(UsageSnapshot.parse(Data("{}".utf8))==nil,"missing quota is unavailable, not zero")
+    var invalid=usageEvent;invalid["payload"]=["rate_limits":["primary":["used_percent":101,"window_minutes":300]]]
+    expect(UsageSnapshot.parse(try! JSONSerialization.data(withJSONObject:invalid))==nil,"reject invalid percentages")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }
