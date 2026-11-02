@@ -1,4 +1,5 @@
 import sqlite3,tempfile,subprocess,os,time,pathlib
+os.environ["MOTE_LANGUAGE"]="ko"
 binary=pathlib.Path(__file__).resolve().parents[1]/'Mote.app/Contents/MacOS/Mote'
 with tempfile.TemporaryDirectory() as h:
  c=sqlite3.connect(h+'/state_5.sqlite');c.execute('CREATE TABLE threads(id,title,cwd,archived,agent_path,updated_at)')

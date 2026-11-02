@@ -15,4 +15,4 @@ PLIST
 other_sources=(Sources/*.swift)
 other_sources=("${(@)other_sources:#Sources/main.swift}")
 swiftc "$test_dir/main.swift" "${other_sources[@]}" -o "$test_dir/MoteTests.app/Contents/MacOS/MoteTests" -framework AppKit -framework SwiftUI -framework UserNotifications -lsqlite3
-MOTE_TEST_SUITE="dev.local.mote.tests.$RANDOM.$RANDOM" "$test_dir/MoteTests.app/Contents/MacOS/MoteTests"
+MOTE_LANGUAGE=ko MOTE_TEST_SUITE="dev.local.mote.tests.$RANDOM.$RANDOM" "$test_dir/MoteTests.app/Contents/MacOS/MoteTests"

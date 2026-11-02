@@ -81,3 +81,7 @@ For first-release account setup, universal DMG creation and verified website pub
 - 전역 단축키: 기본 Control+Option+Space로 가장 오래 기다린 대화를 엽니다. 설정에서 Command+Shift+Space 또는 사용 안 함을 선택할 수 있습니다. 등록 충돌은 설정 화면에 표시됩니다.
 - 사용량 경고: 신선한 로컬 기록 기준 한도 20%, 5% 이하를 초기화 구간별 한 번 알립니다. 처음부터 5% 이하이면 5% 알림만 보냅니다. 낮은 잔여량에서 초기화 예정 시각까지 카운트다운을 보여줍니다.
 - 부재 요약: 화면 잠금·꺼짐, 세션 비활성 또는 5분 이상 입력 없음 동안 대화 알림을 모읍니다. 돌아온 뒤 로컬 상태를 다시 읽고 아직 처리되지 않은 대기·미확인·오류만 요약합니다. 시스템 집중 모드 연동과는 별개입니다.
+
+### Language / 언어
+
+The development app supports English and Korean. It follows the first preferred macOS language by default (Korean for ko, English otherwise). Choose System, 한국어, or English in Mote Settings; the choice is saved and applies to status labels, notifications, settings, usage, and diagnostics. User chat titles are not translated. The website offers Korean at `/mote/` and English at `/mote/en/`, with a persistent language switch. Public download links are changed only after a new notarized release passes verification.

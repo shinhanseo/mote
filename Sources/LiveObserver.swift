@@ -190,7 +190,7 @@ final class LiveObserver: @unchecked Sendable {
                 guard let message=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any] else{return}
                 if message["type"] as? String == "response", message["method"] as? String == "initialize",let result=message["result"] as? [String:Any],let id=result["clientId"] as? String {client=id;onDiagnostic?(nil);onConnection?(true)}
                 if message["type"] as? String == "client-discovery-request",let request=message["requestId"] {_ = send(["type":"client-discovery-response","requestId":request,"response":["canHandle":false]],fd)}
-                if message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int != 11 {onDiagnostic?("현재 Codex 실시간 형식은 아직 지원하지 않아요. 기본 기록 감지는 계속됩니다.")}
+                if message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int != 11 {onDiagnostic?(L10n.text("현재 Codex 실시간 형식은 아직 지원하지 않아요. 기본 기록 감지는 계속됩니다."))}
                 guard message["type"] as? String == "broadcast",message["method"] as? String == "thread-stream-state-changed",message["version"] as? Int == 11,let params=message["params"] as? [String:Any],params["hostId"] as? String == "local",let id=params["conversationId"] as? String,wanted.contains(id),let change=params["change"] as? [String:Any] else{continue}
                 var state=states[id] ?? LiveState()
                 if state.apply(change){states[id]=state;onState?(id,state)}else{

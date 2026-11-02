@@ -13,7 +13,7 @@ import AppKit
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(sleeping),name:NSWorkspace.screensDidSleepNotification,object:nil)
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(waking),name:NSWorkspace.screensDidWakeNotification,object:nil)
     }
-    func update(_ next:String){guard state != next || button?.image == nil else{return};state=next;restart()}
+    func update(_ next:String){guard state != next || button?.image == nil else{draw();return};state=next;restart()}
     @objc private func accessibilityChanged(){restart()}
     @objc private func sleeping(){screensSleeping=true;timer?.invalidate();timer=nil}
     @objc private func waking(){screensSleeping=false;restart()}
@@ -26,8 +26,8 @@ import AppKit
     private func draw(){
         if frames[state]==nil{frames[state]=(0..<4).map{Self.image(state:state,frame:$0)}}
         button?.image=frames[state]?[frame]
-        button?.toolTip=["inProgress":"모트 · 작업 중","approval":"모트 · 승인 대기","answer":"모트 · 답변 대기","unread":"모트 · 미확인 답변이 있어요","failed":"모트 · 오류 확인이 필요해요","idle":"모트 · 쉬는 중"][state]
-        button?.setAccessibilityLabel(button?.toolTip ?? "모트")
+        button?.toolTip=["inProgress":L10n.text("모트 · 작업 중"),"approval":L10n.text("모트 · 승인 대기"),"answer":L10n.text("모트 · 답변 대기"),"unread":L10n.text("모트 · 미확인 답변이 있어요"),"failed":L10n.text("모트 · 오류 확인이 필요해요"),"idle":L10n.text("모트 · 쉬는 중")][state]
+        button?.setAccessibilityLabel(button?.toolTip ?? L10n.text("모트"))
     }
     private static var portraitAssets=[String:NSImage]()
     static func portrait(state:String,frame:Int)->NSImage {

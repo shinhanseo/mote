@@ -6,7 +6,7 @@ struct UsageSnapshot {
         let used:Double
         let minutes:Int
         let reset:Date?
-        var title:String {minutes == 10080 ? "주간 한도":minutes == 300 ? "5시간 한도":"\(minutes)분 한도"}
+        var title:String {minutes == 10080 ? L10n.text("주간 한도"):minutes == 300 ? L10n.text("5시간 한도"):L10n.text("{0}분 한도", [String(describing: minutes)])}
         var remaining:Int {Int((100-used).rounded())}
         func expired(_ now:Date)->Bool {reset.map{$0<=now} ?? false}
     }
@@ -51,23 +51,23 @@ struct UsageDashboard:View {
     @ObservedObject var model:Monitor
     var body:some View {
         VStack(alignment:.leading,spacing:12){
-            HStack{Label("Codex 사용량",systemImage:"chart.bar").font(.system(size:13,weight:.semibold));Spacer();Button{model.refreshUsage(force:true)}label:{Image(systemName:"arrow.clockwise")}.buttonStyle(.plain).disabled(model.usageLoading).accessibilityLabel("로컬 사용량 기록 다시 읽기")}
+            HStack{Label(L10n.text("Codex 사용량"),systemImage:"chart.bar").font(.system(size:13,weight:.semibold));Spacer();Button{model.refreshUsage(force:true)}label:{Image(systemName:"arrow.clockwise")}.buttonStyle(.plain).disabled(model.usageLoading).accessibilityLabel(L10n.text("로컬 사용량 기록 다시 읽기"))}
             if let snapshot=model.usage {
                 ForEach(Array(snapshot.windows.enumerated()),id:\.offset){_,window in
                     VStack(alignment:.leading,spacing:6){
-                        HStack{Text(window.title).font(.caption);Spacer();Text(window.expired(Date()) ? "새 기록 대기":"\(window.remaining)% 남음").font(.system(size:12,weight:.semibold)).monospacedDigit()}
+                        HStack{Text(window.title).font(.caption);Spacer();Text(window.expired(Date()) ? L10n.text("새 기록 대기"):L10n.text("{0}% 남음", [String(describing: window.remaining)])).font(.system(size:12,weight:.semibold)).monospacedDigit()}
                         ProgressView(value:100-window.used,total:100).tint(window.remaining<=20 ? .orange:Palette.olive).opacity(window.expired(Date()) ? 0.3:1)
                         if let reset=window.reset,window.remaining<=20,!window.expired(Date()){TimelineView(.periodic(from:.now,by:60)){context in
                             let minutes=max(0,Int(reset.timeIntervalSince(context.date)/60))
-                            Text("초기화까지 \(minutes/60)시간 \(minutes%60)분 · 예정 시각 기준").font(.system(size:12,weight:.medium))
+                            Text(L10n.text("초기화까지 {0}시간 {1}분 · 예정 시각 기준", [String(describing: minutes/60), String(describing: minutes%60)])).font(.system(size:12,weight:.medium))
                         }}
-                        if let reset=window.reset {Text(window.expired(Date()) ? "초기화 시각 경과 · 최신 사용량은 아직 확인되지 않았어요":"초기화 · \(reset.formatted(date:.abbreviated,time:.shortened))").font(.system(size:10)).foregroundStyle(.secondary)}
+                        if let reset=window.reset {Text(window.expired(Date()) ? L10n.text("초기화 시각 경과 · 최신 사용량은 아직 확인되지 않았어요"):L10n.text("초기화 · {0}", [String(describing: reset.formatted(date:.abbreviated,time:.shortened))])).font(.system(size:10)).foregroundStyle(.secondary)}
                     }
                 }
-                Text("기록 시각 · \(snapshot.recorded.formatted(date:.abbreviated,time:.shortened))").font(.system(size:10)).foregroundStyle(.secondary)
-                if Date().timeIntervalSince(snapshot.recorded)>900 {Text("15분 이상 지난 기록이에요. 실제 잔여량과 다를 수 있어요.").font(.system(size:10)).foregroundStyle(.orange)}
-            }else{Text(model.usageLoading ? "로컬 사용량 기록 확인 중…":"사용량 기록이 아직 없어요. Codex에서 작업한 뒤 다시 확인해 주세요.").font(.caption).foregroundStyle(.secondary)}
-            Text("이 Mac의 최근 Codex 기록 기준 · 계정 전환 시 이전 계정 기록일 수 있어요. 새로고침은 서버 조회가 아닌 기록 재확인입니다.").font(.system(size:10)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
+                Text(L10n.text("기록 시각 · {0}", [String(describing: snapshot.recorded.formatted(date:.abbreviated,time:.shortened))])).font(.system(size:10)).foregroundStyle(.secondary)
+                if Date().timeIntervalSince(snapshot.recorded)>900 {Text(L10n.text("15분 이상 지난 기록이에요. 실제 잔여량과 다를 수 있어요.")).font(.system(size:10)).foregroundStyle(.orange)}
+            }else{Text(model.usageLoading ? L10n.text("로컬 사용량 기록 확인 중…"):L10n.text("사용량 기록이 아직 없어요. Codex에서 작업한 뒤 다시 확인해 주세요.")).font(.caption).foregroundStyle(.secondary)}
+            Text(L10n.text("이 Mac의 최근 Codex 기록 기준 · 계정 전환 시 이전 계정 기록일 수 있어요. 새로고침은 서버 조회가 아닌 기록 재확인입니다.")).font(.system(size:10)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
         }.padding(14).background(Palette.olive.opacity(0.06),in:RoundedRectangle(cornerRadius:14))
     }
 }

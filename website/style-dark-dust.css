@@ -19,3 +19,5 @@
 .demo-stage[data-state=idle] .product-fairy:before{animation:sleep-mouth 1.6s steps(1,end) infinite}
 @keyframes sleep-mouth{0%,100%{background-image:url('assets/mote-dust-sleep-0.svg')}25%,75%{background-image:url('assets/mote-dust-sleep-1.svg')}50%{background-image:url('assets/mote-dust-sleep-2.svg')}}
 @media(prefers-reduced-motion:reduce){.demo-stage[data-state=idle] .product-fairy:before{animation:none}}
+
+.language-switch{font-weight:600;border-bottom:1px solid currentColor;padding-block:4px}html[lang=en] .hero h1{letter-spacing:-2.8px;font-size:clamp(44px,5vw,65px)}html[lang=en] .feature-copy h2{letter-spacing:-1px}html[lang=en] .hero-copy{max-width:560px} @media(max-width:640px){.nav nav .language-switch:first-child{display:inline-flex}.nav nav>a[href="#how"]{display:none}html[lang=en] .hero h1{font-size:44px}}
