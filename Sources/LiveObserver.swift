@@ -17,7 +17,12 @@ struct LiveState {
     var asyncQuestionIDs:[String] {
         let items=Array(questionItems.values)
         let answered=Set(items.flatMap{$0["answered"] as? [String] ?? []})
-        return items.flatMap { item -> [String] in
+        // Async prompts belong to the turn that asked them. A later user turn
+        // supersedes old prompts even when the user replied in ordinary chat.
+        guard let latest=latestTurn else{return []}
+        let latestKeys=turns.filter{$0.value.id==latest.id}.map(\.key)
+        let currentItems=questionItems.filter{entry in latestKeys.contains{entry.key.hasPrefix($0+"/")}}.map(\.value)
+        return currentItems.flatMap { item -> [String] in
             guard let id=item["id"] as? String,let count=item["count"] as? Int else{return []}
             return (0..<count).compactMap{index in
                 let data=try! JSONSerialization.data(withJSONObject:["request_user_input_async",id,index],options:[.fragmentsAllowed,.withoutEscapingSlashes])
@@ -87,7 +92,7 @@ struct LiveState {
             if first == "turnHistory" {
                 if path.count==1,let history=patch["value"] as? [String:Any]{turns.removeAll();questionItems.removeAll();captureHistory(history)}
                 else if path.count>=4,path[1] as? String == "history",path[2] as? String == "entitiesByKey",let key=path[3] as? String {
-                    if path.count==4 {if op=="remove"{turns.removeValue(forKey:key)}else if let object=patch["value"] as? [String:Any]{capture(key,object)}}
+                    if path.count==4 {if op=="remove"{turns.removeValue(forKey:key);questionItems=questionItems.filter{!$0.key.hasPrefix(key+"/")}}else if let object=patch["value"] as? [String:Any]{capture(key,object)}}
                     else if path.count==5,let field=path[4] as? String,var turn=turns[key]{
                         if field=="status",let value=patch["value"] as? String {turn.status=value}
                         if field=="turnStartedAtMs",let value=patch["value"] as? Double {turn.started=value}

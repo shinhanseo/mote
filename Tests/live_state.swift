@@ -54,3 +54,17 @@ print("PASS: parallel conversation retention, deduplication, persistence and ind
 check(!PresentationPolicy.resolvedGroup(["a","b"],by:["a"]),"reading one reply must not dismiss a group containing another unread reply")
 check(PresentationPolicy.resolvedGroup(["a","b"],by:["a","b"]),"fully read notification group is dismissed")
 print("PASS: grouped notification stays until all replies are resolved")
+
+// An ordinary chat reply may continue past an async prompt without using its UI.
+var questions=LiveState()
+let oldPrompt:[String:Any] = ["turnId":"old","status":"completed","turnStartedAtMs":100.0,"items":[["type":"agentMessage","id":"browser-prompt","questions":[["title":"Enable browser?"]]]]]
+check(questions.apply(["type":"snapshot","revision":1,"conversationState":["threadRuntimeStatus":["type":"idle"],"turnHistory":["history":["entitiesByKey":["turn:old":oldPrompt]]]]]),"async snapshot")
+check(questions.waiting=="answer","latest async question stays visible after turn finishes")
+check(questions.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["turnHistory","history","entitiesByKey","turn:new"],"value":["turnId":"new","status":"inProgress","turnStartedAtMs":200.0,"items":[["type":"userMessage","content":[["type":"text","text":"Browser enabled"]]]]]]]]),"ordinary reply starts new turn")
+check(questions.asyncQuestionIDs.isEmpty && questions.waiting==nil,"historic async prompt must not become phantom waiting")
+var reconnect=LiveState()
+check(reconnect.apply(["type":"snapshot","revision":1,"conversationState":["threadRuntimeStatus":["type":"idle"],"turnHistory":["history":["entitiesByKey":["turn:old":oldPrompt,"turn:new":["turnId":"new","status":"completed","turnStartedAtMs":200.0,"items":[]]]]]]]),"reconnect with history")
+check(reconnect.waiting==nil,"reconnect cannot revive an old question")
+check(reconnect.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["threadRuntimeStatus"],"value":["type":"active","activeFlags":["waitingOnApproval"]]]]]),"real approval")
+check(reconnect.waiting=="approval","actual current approval still detected")
+print("PASS: async prompts scoped to latest turn; ordinary replies and reconnect clear historic waits")
