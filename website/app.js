@@ -47,3 +47,13 @@ document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener
 document.querySelectorAll('[data-language]').forEach(link=>link.addEventListener('click',()=>{
   try{localStorage.setItem('mote.language',link.dataset.language);}catch{}
 }));
+
+// Illustrative alerts share the same state switch as the panel.
+document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{
+ const name=button.dataset.demo;
+ const titles=english ? {approval:'Mote · Approval needed',answer:'Mote · Your reply is needed',unread:'Mote · A reply is ready'} : {approval:'모트 · 승인이 필요해요',answer:'모트 · 답변을 기다려요',unread:'모트 · 답변이 도착했어요'};
+ const toast=document.getElementById('demo-toast');
+ toast.hidden=!titles[name];
+ document.getElementById('toast-title').textContent=titles[name]||'';
+ document.getElementById('toast-symbol').textContent=name==='approval'?'!':name==='answer'?'?':'✉';
+}));
