@@ -13,6 +13,7 @@ enum L10n {
         let canonical=english.first(where:{$0.value==key})?.key ?? key
         var value=language=="ko" ? canonical:(english[canonical] ?? key)
         for (index,argument) in arguments.enumerated(){value=value.replacingOccurrences(of:"{\(index)}",with:argument)}
+        if language=="en",arguments.first=="1" {value=value.replacingOccurrences(of:"tasks",with:"task").replacingOccurrences(of:"replies",with:"reply")}
         return value
     }
     static let english:[String:String] = [
