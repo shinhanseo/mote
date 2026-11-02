@@ -29,27 +29,16 @@ import AppKit
         button?.toolTip=["inProgress":"모트 · 작업 중","approval":"모트 · 승인 대기","answer":"모트 · 답변 대기","unread":"모트 · 미확인 답변이 있어요","failed":"모트 · 오류 확인이 필요해요","idle":"모트 · 쉬는 중"][state]
         button?.setAccessibilityLabel(button?.toolTip ?? "모트")
     }
+    private static var portraitAssets=[String:NSImage]()
     static func portrait(state:String,frame:Int)->NSImage {
-        NSImage(size:NSSize(width:200,height:160),flipped:false){_ in
-            let sleeping=state=="idle",bob:CGFloat=state=="inProgress" ? [0,2,0,-2][frame]:0
-            let center=NSPoint(x:100,y:80+bob)
-            NSColor(calibratedWhite:0.15,alpha:1).setFill()
-            let body=NSBezierPath(ovalIn:NSRect(x:45,y:25+bob,width:110,height:110))
-            for i in 0..<11 {let a=Double(i)*2*Double.pi/11;body.appendOval(in:NSRect(x:center.x+cos(a)*47-12,y:center.y+sin(a)*47-12,width:24,height:24))};body.fill()
-            NSColor(calibratedWhite:0.98,alpha:1).setFill();NSColor(calibratedWhite:0.98,alpha:1).setStroke()
-            if sleeping {
-                for x:CGFloat in [73,113]{let eye=NSBezierPath();eye.lineWidth=3;eye.lineCapStyle = .round;eye.move(to:NSPoint(x:x-7,y:85));eye.curve(to:NSPoint(x:x+7,y:85),controlPoint1:NSPoint(x:x-2,y:89),controlPoint2:NSPoint(x:x+2,y:89));eye.stroke()}
-                NSBezierPath(ovalIn:NSRect(x:94,y:52,width:12,height:16)).fill()
-                ("z" as NSString).draw(at:NSPoint(x:157,y:123),withAttributes:[.font:NSFont.systemFont(ofSize:17),.foregroundColor:NSColor.secondaryLabelColor])
-            }else{
-                for x:CGFloat in [73,113] {NSBezierPath(ovalIn:NSRect(x:x-8,y:77+bob,width:16,height:23)).fill()}
-                NSColor(calibratedWhite:0.15,alpha:1).setFill()
-                for x:CGFloat in [75,115] {NSBezierPath(ovalIn:NSRect(x:x-3,y:83+bob,width:6,height:9)).fill()}
-                let smile=NSBezierPath();smile.lineWidth=3;smile.lineCapStyle = .round;smile.move(to:NSPoint(x:92,y:61+bob));smile.curve(to:NSPoint(x:106,y:61+bob),controlPoint1:NSPoint(x:96,y:54+bob),controlPoint2:NSPoint(x:102,y:54+bob));smile.stroke()
-            }
-            if state=="approval" || state=="answer" || state=="unread" || state=="failed" {
-                let label=["approval":"!","answer":"?","unread":"✉","failed":"!"][state]!
-                (label as NSString).draw(at:NSPoint(x:157,y:60+CGFloat(frame%2)*3),withAttributes:[.font:NSFont.systemFont(ofSize:23,weight:.medium),.foregroundColor:NSColor.labelColor])
+        let name=state=="idle" ? "mote-dust-sleep":"mote-dust-soft"
+        if portraitAssets[name]==nil,let url=Bundle.main.url(forResource:name,withExtension:"svg"),let asset=NSImage(contentsOf:url){portraitAssets[name]=asset}
+        guard let asset=portraitAssets[name] else{return image(state:state,frame:frame)}
+        return NSImage(size:NSSize(width:200,height:160),flipped:false){_ in
+            let bob:CGFloat=state=="inProgress" ? [0,2,0,-2][frame]:0
+            asset.draw(in:NSRect(x:0,y:bob,width:200,height:160))
+            if let label=["approval":"!","answer":"?","unread":"✉","failed":"!"][state] {
+                (label as NSString).draw(at:NSPoint(x:169,y:60+CGFloat(frame%2)*3),withAttributes:[.font:NSFont.systemFont(ofSize:20,weight:.medium),.foregroundColor:NSColor.labelColor])
             }
             return true
         }
