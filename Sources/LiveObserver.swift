@@ -6,6 +6,7 @@ struct LiveState {
     var runtime: [String:Any] = [:]
     var requestIDs: [String] = []
     var requestReasons:[String:String]=[:]
+    var activityRevision=0
     var revision: Int = -1
     var unread:Bool?
     struct Turn {var id:String;var status:String;var started:Double}
@@ -82,6 +83,7 @@ struct LiveState {
         for patch in patches {
             guard let path=patch["path"] as? [Any],let first=path.first as? String else {continue}
             let op=patch["op"] as? String ?? ""
+            if (first == "turnHistory" || first == "turns") && (path.contains(where:{($0 as? String)=="items"}) || path.last as? String == "status") {activityRevision += 1}
             if first == "turnHistory" {
                 if path.count==1,let history=patch["value"] as? [String:Any]{turns.removeAll();questionItems.removeAll();captureHistory(history)}
                 else if path.count>=4,path[1] as? String == "history",path[2] as? String == "entitiesByKey",let key=path[3] as? String {

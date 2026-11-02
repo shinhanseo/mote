@@ -87,6 +87,17 @@ MainActor.assumeIsolated {
     expect(resetPolicy.due(now:resetNow.addingTimeInterval(3),short:true,weekly:true).isEmpty,"reset delivered only once")
     resetPolicy.pending=["300":1]
     expect(resetPolicy.due(now:resetNow,short:true,weekly:true).isEmpty,"skip old reset after sleep")
+    let watch=Monitor();watch.ledger=NotificationLedger();watch.liveConnected=true;watch.reminderEnabled=true;watch.reminderMinutes=5;watch.attentionAlerts=true;watch.muted=false;watch.pauseUntil=nil
+    var watchCount=0;watch.onNotice={_,_,_ in watchCount += 1}
+    var waitingJob=running;waitingJob.status="answer";waitingJob.waitSince=Date().addingTimeInterval(-301)
+    watch.jobs=[waitingJob];watch.checkWaitReminders();watch.checkWaitReminders()
+    expect(watchCount==1,"one reminder per unresolved request")
+    waitingJob.status="inProgress";watch.jobs=[waitingJob];watch.checkWaitReminders()
+    expect(watchCount==1,"resolved request cannot remind")
+    watch.receiveNetwork(false);watch.receiveNetwork(false)
+    expect(watchCount==2 && watch.activityLabel(running.id).contains("네트워크"),"offline notifies once and overrides activity caption")
+    watch.networkAvailable=true;watch.lastActivity[running.id]=Date().addingTimeInterval(-601)
+    expect(watch.activityLabel(running.id).contains("오래 변화 없음"),"long silence is labeled without claiming failure")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

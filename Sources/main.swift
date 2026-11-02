@@ -73,6 +73,36 @@ struct LocalReader {
     }
     @Published var shortResetAlerts=MotePreferences.store.object(forKey:"shortResetAlerts") as? Bool ?? true {didSet{MotePreferences.store.set(shortResetAlerts,forKey:"shortResetAlerts")}}
     @Published var weeklyResetAlerts=MotePreferences.store.object(forKey:"weeklyResetAlerts") as? Bool ?? true {didSet{MotePreferences.store.set(weeklyResetAlerts,forKey:"weeklyResetAlerts")}}
+    @Published var reminderEnabled=MotePreferences.store.object(forKey:"reminderEnabled") as? Bool ?? true {didSet{MotePreferences.store.set(reminderEnabled,forKey:"reminderEnabled")}}
+    @Published var reminderMinutes=MotePreferences.store.integer(forKey:"reminderMinutes")==0 ? 5:MotePreferences.store.integer(forKey:"reminderMinutes") {didSet{MotePreferences.store.set(reminderMinutes,forKey:"reminderMinutes")}}
+    let connectivity=Connectivity()
+    @Published var networkAvailable:Bool?
+    func receiveNetwork(_ available:Bool){
+        let previous=networkAvailable;networkAvailable=available
+        if !available,previous != false,active>0,!muted,!paused {
+            deliver([],title:"모트 · 네트워크 연결 없음",body:"Codex 진행을 확인해 주세요. 연결 복구가 필요할 수 있어요.",sound:attentionSound,identifier:"network-offline")
+        }
+        if available,previous==false {refresh()}
+        onUpdate?()
+    }
+    @Published var lastActivity=[String:Date]()
+    func activityLabel(_ id:String,now:Date=Date())->String {
+        if networkAvailable==false{return "네트워크 연결 없음 · 진행 확인 필요"}
+        guard liveConnected,let stamp=lastActivity[id] else{return "활동 시각 확인 중"}
+        let seconds=max(0,Int(now.timeIntervalSince(stamp)))
+        return seconds>=300 ? "마지막 변화 \(seconds/60)분 전 · 오래 변화 없음":seconds>=60 ? "마지막 활동 \(seconds/60)분 전":"마지막 활동 \(seconds)초 전"
+    }
+    func checkWaitReminders(now:Date=Date()){
+        guard reminderEnabled,attentionAlerts,!muted,!paused,liveConnected else{return}
+        for job in jobs where ["approval","answer"].contains(job.status) {
+            guard let since=job.waitSince,now.timeIntervalSince(since)>=Double(reminderMinutes*60) else{continue}
+            let state=liveStates[job.id]
+            let key="reminder|"+NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:(state?.requestIDs ?? [])+(state?.asyncQuestionIDs ?? []))
+            guard ledger.claim(key,now:now) else{continue}
+            MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")
+            deliver([job],title:"모트 · \(Int(now.timeIntervalSince(since)/60))분째 응답 대기",body:job.title,sound:attentionSound,identifier:key)
+        }
+    }
     var resetPolicy=UsageResetPolicy(pending:MotePreferences.store.dictionary(forKey:"usageResetPending") as? [String:Double] ?? [:],delivered:Set(MotePreferences.store.stringArray(forKey:"usageResetDelivered") ?? []))
     func applyUsage(_ snapshot:UsageSnapshot?){
         usage=snapshot;usageLoading=false
@@ -145,6 +175,7 @@ struct LocalReader {
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
     var chosen: Job? { jobs.first{$0.id==selected} ?? jobs.first }
     func start() {
+        connectivity.start{[weak self] available in Task{@MainActor in self?.receiveNetwork(available)}}
         live.onDiagnostic = {[weak self] message in Task{@MainActor in guard let self else{return};self.liveIssue=message;if message != nil{self.liveStates.removeAll();self.reconcile();self.onUpdate?()}}}
         live.onState = {[weak self] id,state in Task { @MainActor in self?.receive(id,state) }}
         live.onConnection = {[weak self] connected in Task { @MainActor in guard let self else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile();self.onUpdate?()}}}
@@ -215,6 +246,7 @@ struct LocalReader {
     }
     func refresh() {
         checkUsageResets()
+        checkWaitReminders()
         refreshUsage()
         guard !reading else{return}; reading=true
         let currentIDs=Set(pinnedIDs)
@@ -237,6 +269,7 @@ struct LocalReader {
     func receive(_ id:String,_ state:LiveState) {
         let old=liveStates[id]
         if let latest=state.latestTurn,let raw=rawJobs.first(where:{$0.id==id}),latest.id != raw.turn,latest.started/1000 < raw.startedAt {return}
+        if lastActivity[id]==nil || (old != nil && (old!.activityRevision != state.activityRevision || old!.latestTurn?.id != state.latestTurn?.id || old!.waiting != state.waiting)) {lastActivity[id]=Date()}
         if let latest=state.latestTurn,rawJobs.contains(where:{$0.id==id}){followNewTurn(id:id,turn:latest.id,started:latest.started/1000)}
         if let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
             latest.id != prior.id || latest.status != prior.status,let raw=rawJobs.first(where:{$0.id==id}) {
@@ -274,7 +307,7 @@ struct LocalReader {
             if job.status=="unread",PresentationPolicy.isDeferred(thread:job.id,turn:job.turn,records:deferred){job.status="deferred"}
             if ["approval","answer"].contains(job.status){
                 let state=liveStates[raw.id]
-                let key=NotificationLedger.key(thread:raw.id,turn:state?.latestTurn?.id ?? raw.turn,kind:job.status,requests:state?.requestIDs ?? [])
+                let key=NotificationLedger.key(thread:raw.id,turn:state?.latestTurn?.id ?? raw.turn,kind:job.status,requests:(state?.requestIDs ?? [])+(state?.asyncQuestionIDs ?? []))
                 if waitTimes[key]==nil{waitTimes[key]=Date()};job.waitSince=waitTimes[key]
             }
             if job.status=="failed",dismissedErrors.contains(job.id+job.turn){job.status="reviewedError"}
@@ -350,6 +383,7 @@ struct RunningCaption:View {
 struct Panel:View {
     @ObservedObject var model:Monitor
     var headline:String {
+        if model.networkAvailable==false{return "네트워크 연결을\n확인해 주세요."}
         if model.waiting>0{return "\(model.waiting)개 작업이\n응답을 기다려요."}
         if model.unread>0{return "미확인 답변이\n\(model.unread)개 있어요."}
         if model.jobs.contains(where:{$0.status=="failed"}){return "확인이 필요한\n오류가 있어요."}
@@ -386,6 +420,7 @@ struct Panel:View {
                 }.padding(.top,8)
             }
             if model.undoPins != nil{HStack{Text("작업 목록을 정리했어요");Spacer();Button("되돌리기"){model.undoCleanup()}}.font(.caption).foregroundStyle(.secondary)}
+            if model.networkAvailable==false{Label("네트워크 경로가 없어요. Wi-Fi·유선 연결을 확인해 주세요.",systemImage:"wifi.slash").font(.caption).foregroundStyle(.orange)}
             if let issue=model.liveIssue{Text(issue).font(.caption).foregroundStyle(.orange)}
             if let error=model.error{Text(error).font(.caption).foregroundStyle(.orange)}
             if let message=model.settingsError{Text(message).font(.caption).foregroundStyle(.secondary)}
@@ -397,7 +432,7 @@ struct Panel:View {
     func row(_ job:Job)->some View {
         Button{model.open(job.id)}label:{
             HStack(spacing:11){Group{if job.status=="inProgress"{RunningIndicator()}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).background(job.status=="failed" ? Color.orange.opacity(0.12):Palette.olive.opacity(0.10),in:RoundedRectangle(cornerRadius:9))
-                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project)}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
+                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
                     if let reason=job.reason{Text(reason).font(.caption).foregroundStyle(Palette.olive)}
                     if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}
                 };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.tertiary)
@@ -418,6 +453,9 @@ struct Panel:View {
             Divider()
             Toggle("승인·질문 알림",isOn:$model.attentionAlerts)
             Toggle("승인·질문 알림 소리",isOn:$model.attentionSound)
+            Toggle("승인·질문 대기 재알림",isOn:$model.reminderEnabled)
+            if model.reminderEnabled {Picker("재알림 간격",selection:$model.reminderMinutes){Text("3분 후").tag(3);Text("5분 후").tag(5);Text("10분 후").tag(10)}}
+            Text("처리되지 않은 같은 요청에 한 번만 다시 알려줘요. 오래 변화 없음 표시는 멈춤 판정이 아닙니다.").font(.system(size:10)).foregroundStyle(.secondary)
             Toggle("작업 완료 알림",isOn:$model.completionAlerts)
             Toggle("완료·오류 알림 소리",isOn:$model.completionSound)
             Toggle("오류 알림",isOn:$model.errorAlerts)
