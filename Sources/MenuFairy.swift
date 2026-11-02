@@ -61,10 +61,6 @@ import AppKit
                 stroke(NSPoint(x:6,y:9+bob),NSPoint(x:3,y:5+tap))
                 stroke(NSPoint(x:20,y:9+bob),NSPoint(x:24,y:6-tap))
                 NSBezierPath(roundedRect:NSRect(x:3,y:2,width:22,height:1.4),xRadius:0.7,yRadius:0.7).fill()
-                // Traveling dots are visible at native menu-bar size, not only in a large preview.
-                for i in 0..<3 where i != frame%3 {
-                    NSBezierPath(ovalIn:NSRect(x:9+CGFloat(i)*4,y:19,width:2,height:2)).fill()
-                }
             }else if state=="failed"{
                 NSBezierPath(rect:NSRect(x:24,y:10,width:2,height:7)).fill()
                 NSBezierPath(ovalIn:NSRect(x:24,y:6,width:2,height:2)).fill()
@@ -81,10 +77,14 @@ import AppKit
                     NSBezierPath(roundedRect:NSRect(x:0,y:14,width:7,height:6),xRadius:2,yRadius:2).fill()
                     let tail=NSBezierPath();tail.move(to:NSPoint(x:4,y:14));tail.line(to:NSPoint(x:6,y:12));tail.line(to:NSPoint(x:6,y:15));tail.close();tail.fill()
                 }
-                let wave:CGFloat=[0,3,1,-1][frame]
-                stroke(NSPoint(x:19,y:12),NSPoint(x:24+wave/2,y:18+wave/2))
-                NSBezierPath(ovalIn:NSRect(x:23+wave/2,y:17+wave/2,width:3,height:3)).fill()
-                if state == "approval" {NSBezierPath(rect:NSRect(x:2,y:16,width:1.5,height:4)).fill();NSBezierPath(ovalIn:NSRect(x:2,y:13,width:1.5,height:1.5)).fill()}
+                if state == "approval" {
+                    // A tall isolated badge is distinct from the question bubble at 1x size.
+                    NSBezierPath(roundedRect:NSRect(x:23,y:9,width:4,height:11),xRadius:1,yRadius:1).fill()
+                    NSBezierPath(ovalIn:NSRect(x:23.5,y:5,width:3,height:3)).fill()
+                }else{
+                    let wave:CGFloat=[0,3,1,-1][frame]
+                    stroke(NSPoint(x:19,y:12),NSPoint(x:24+wave/2,y:18+wave/2))
+                }
             }
             // Transparent eye cutouts make template images legible in either menu-bar appearance.
             NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current?.compositingOperation = .clear

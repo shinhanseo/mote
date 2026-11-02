@@ -53,6 +53,7 @@ struct LocalReader {
 }
 
 @MainActor final class Monitor: ObservableObject {
+    @Published var demoMode=false
     @Published var jobs=[Job](); @Published var error: String?; @Published var selected: String? = MotePreferences.store.string(forKey:"currentConversation"); @Published var all=false
     @Published var pinnedIDs:[String] = MotePreferences.store.stringArray(forKey:"workingConversations") ?? MotePreferences.store.string(forKey:"currentConversation").map{[$0]} ?? []
     @Published var notificationStatus="알림 권한 확인 중"; @Published var muted=false
@@ -333,6 +334,7 @@ struct LocalReader {
         return parts.url
     }
     func open(_ id:String) {
+        if demoMode{return}
         guard let url=Self.conversationURL(id) else{error="대화 링크가 올바르지 않아요.";onUpdate?();return}
         if openURL(url){makeCurrent(id);refresh()}else{error="Codex에서 대화를 열지 못했어요. Codex 설치와 실행 상태를 확인해 주세요.";onUpdate?()}
         // Opening a link is not proof that a reply was read; only Codex receipts clear it.
@@ -401,6 +403,7 @@ struct Panel:View {
     var body:some View {
         VStack(alignment:.leading,spacing:16){
             HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill(model.networkAvailable==false ? Color.orange:model.liveConnected ? Palette.olive:Color.orange).frame(width:6,height:6);Text(model.networkAvailable==false ? "네트워크 없음":model.liveIssue != nil ? "기록 감지":model.liveConnected ? "연결됨":"재연결 중").font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel("설정")}
+            if model.demoMode{Text("미리보기 · 실제 대화와 무관한 테스트 상태").font(.caption).foregroundStyle(.orange)}
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)
                     if model.waiting>0{Text("승인 \(model.jobs.filter{$0.status=="approval"}.count) · 답변 \(model.jobs.filter{$0.status=="answer"}.count) · 오래 기다린 순").font(.system(size:11)).foregroundStyle(.secondary)}
@@ -527,7 +530,31 @@ struct CompactPanel:View {
             guard let app=note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,app.processIdentifier != ProcessInfo.processInfo.processIdentifier else{return}
             Task{@MainActor in self?.panel.orderOut(nil)}
         }
-        monitor.start();toggle();fputs("Mote panel ready\n",stderr)
+        if CommandLine.arguments.contains("--demo"){startDemo()}else{monitor.start()};toggle();fputs("Mote panel ready\n",stderr)
+    }
+    func startDemo(){
+        monitor.demoMode=true
+        let pins=monitor.pinnedIDs
+        Task{@MainActor in
+            let states=["inProgress","approval","answer","unread","offline","idle"]
+            for state in states {
+                self.monitor.networkAvailable=state != "offline";self.monitor.liveConnected=true
+                self.monitor.notificationStatus="테스트 알림"
+                let status=state=="offline" ? "inProgress":state=="idle" ? "completed":state
+                let job=Job(id:"demo",title:"[데모] 로그인 화면 구현",project:"mote-demo",status:status,turn:"demo",waitSince:["approval","answer"].contains(state) ? Date().addingTimeInterval(-300):nil,reason:state=="approval" ? "명령 실행 승인이 필요해요":state=="answer" ? "진행 방식을 선택해 주세요":nil)
+                self.monitor.jobs=[job];self.monitor.pinnedIDs=[job.id];self.monitor.lastActivity[job.id]=Date()
+                self.monitor.onUpdate?()
+                if !self.panel.isVisible{self.toggle()}
+                if ["approval","answer","unread","offline"].contains(state) {
+                    self.monitor.displayAlerts.show(title:["approval":"[데모] 모트 · 승인이 필요해요","answer":"[데모] 모트 · 답변을 기다려요","unread":"[데모] 모트 · 답변이 도착했어요","offline":"[데모] 모트 · 네트워크 연결 없음"][state]!,body:job.title,mode:self.monitor.alertDisplay=="system" ? "cursor":self.monitor.alertDisplay,sound:false,threads:["demo"],open:{})
+                }
+                try? await Task.sleep(nanoseconds:8_000_000_000)
+            }
+            self.monitor.displayAlerts.cancel(threads:["demo"])
+            self.monitor.pinnedIDs=pins;self.monitor.jobs=[];self.monitor.demoMode=false
+            self.monitor.networkAvailable=nil;self.monitor.start()
+            self.monitor.onUpdate?()
+        }
     }
     @objc func toggle(){
         if panel.isVisible {panel.orderOut(nil);return}
