@@ -62,6 +62,7 @@ struct LocalReader {
     @Published var liveIssue:String?
     @Published var lastSync:Date?
     @Published var deferred=MotePreferences.store.dictionary(forKey:"deferredReplies") as? [String:String] ?? [:] {didSet{MotePreferences.store.set(deferred,forKey:"deferredReplies")}}
+    @Published var showUsage=false
     @Published var usage:UsageSnapshot?
     @Published var usageLoading=false
     private var lastUsageRead=Date.distantPast
@@ -343,7 +344,6 @@ struct Panel:View {
             HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));Text(model.liveIssue != nil ? "기본 기록 감지":model.liveConnected ? "● 실시간 감지":"재연결 중").font(.caption).foregroundStyle(.secondary);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel("설정")}
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
-                UsageDashboard(model:model)
                 if !model.currentJobs.isEmpty {
                     HStack{Label("작업 중인 대화 \(model.currentJobs.count)",systemImage:"pin.fill").font(.caption).foregroundStyle(.secondary);Spacer();Button("완료 정리"){model.cleanCompleted()}.font(.system(size:11)).buttonStyle(.borderless)}
                     VStack(spacing:5){ForEach(model.currentJobs){current in
@@ -359,6 +359,15 @@ struct Panel:View {
 
                     }
                 }
+            }
+            if !model.showSettings {
+                DisclosureGroup(isExpanded:$model.showUsage){UsageDashboard(model:model).padding(.top,8)}label:{
+                    HStack(spacing:6){Image(systemName:"chart.bar");Text("사용량");Spacer();
+                        if let snapshot=model.usage,let window=snapshot.windows.first,!window.expired(Date()),Date().timeIntervalSince(snapshot.recorded)<=900 {
+                            Text("\(window.title) · \(window.remaining)% 남음").monospacedDigit()
+                        }else{Text("기록 확인")}
+                    }.font(.system(size:11)).foregroundStyle(.secondary)
+                }.padding(.top,8)
             }
             if model.undoPins != nil{HStack{Text("작업 목록을 정리했어요");Spacer();Button("되돌리기"){model.undoCleanup()}}.font(.caption).foregroundStyle(.secondary)}
             if let issue=model.liveIssue{Text(issue).font(.caption).foregroundStyle(.orange)}
