@@ -43,7 +43,7 @@ struct DisplayAlertView:View {
     var title:String;var message:String;var open:()->Void;var close:()->Void
     var bodyView:some View {
         HStack(alignment:.center,spacing:9){
-            Image(nsImage:MenuFairy.image(state:"unread",frame:0)).resizable().scaledToFit().frame(width:24,height:22).accessibilityHidden(true)
+            Image(systemName:title.contains("승인") ? "hand.raised":title.contains("답변") || title.contains("응답") ? "message":title.contains("네트워크") ? "wifi.slash":"envelope").font(.system(size:18)).foregroundStyle(title.contains("승인") || title.contains("네트워크") ? Color.orange:Palette.olive).frame(width:24,height:22).accessibilityHidden(true)
             Button(action:open){VStack(alignment:.leading,spacing:4){Text(title).font(.system(size:13,weight:.semibold));Text(message.replacingOccurrences(of:"\n",with:" · ")).font(.system(size:12)).lineLimit(1).multilineTextAlignment(.leading)}.frame(maxWidth:.infinity,alignment:.leading)}.buttonStyle(.plain)
             Button(action:close){Image(systemName:"xmark").font(.system(size:11)).frame(width:24,height:24)}.buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("알림 닫기")
         }.padding(12)

@@ -155,7 +155,11 @@ struct LocalReader {
     var paused:Bool {pauseUntil.map{$0>Date()} ?? false}
     var attentionJobs:[Job] {jobs.filter{["approval","answer","unread","failed"].contains($0.status)}}
     var runningJobs:[Job] {jobs.filter{$0.status=="inProgress"}}
-    var currentJobs:[Job] {let lookup=Dictionary(uniqueKeysWithValues:jobs.map{($0.id,$0)});return pinnedIDs.compactMap{lookup[$0]}}
+    var currentJobs:[Job] {let lookup=Dictionary(uniqueKeysWithValues:jobs.map{($0.id,$0)});return pinnedIDs.compactMap{lookup[$0]}.sorted{a,b in
+        let aw=["approval","answer"].contains(a.status),bw=["approval","answer"].contains(b.status)
+        if aw != bw{return aw};if aw,a.waitSince != b.waitSince{return (a.waitSince ?? .distantFuture)<(b.waitSince ?? .distantFuture)}
+        return (pinnedIDs.firstIndex(of:a.id) ?? 0)<(pinnedIDs.firstIndex(of:b.id) ?? 0)
+    }}
     var inboxJobs:[Job] {attentionJobs.filter{!pinnedIDs.contains($0.id)}}
     var otherRunning:[Job] {runningJobs.filter{!pinnedIDs.contains($0.id)}}
     func makeCurrent(_ id:String){selected=id;pinnedIDs=WorkingConversations.adding(id,to:pinnedIDs);MotePreferences.store.set(pinnedIDs,forKey:"workingConversations");MotePreferences.store.set(id,forKey:"currentConversation")}
@@ -315,6 +319,7 @@ struct LocalReader {
         }.enumerated().sorted{a,b in
             func rank(_ status:String)->Int{switch status{case "approval","answer":return 0;case "failed":return 1;case "unread":return 2;case "inProgress":return 3;default:return 4}}
             let ar=rank(a.element.status),br=rank(b.element.status)
+            if ar==0 && br==0,a.element.waitSince != b.element.waitSince{return (a.element.waitSince ?? .distantFuture)<(b.element.waitSince ?? .distantFuture)}
             return ar==br ? a.offset<b.offset:ar<br
         }.map(\.element)
         if waitTimes.count>500 {waitTimes=Dictionary(uniqueKeysWithValues:waitTimes.sorted{$0.value>$1.value}.prefix(300).map{($0.key,$0.value)})}
@@ -397,14 +402,16 @@ struct Panel:View {
         VStack(alignment:.leading,spacing:16){
             HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill(model.networkAvailable==false ? Color.orange:model.liveConnected ? Palette.olive:Color.orange).frame(width:6,height:6);Text(model.networkAvailable==false ? "네트워크 없음":model.liveIssue != nil ? "기록 감지":model.liveConnected ? "연결됨":"재연결 중").font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel("설정")}
             if model.showSettings{settings}else{
-                HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)};Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
+                HStack{VStack(alignment:.leading,spacing:7){Text("작은 먼지가 챙겨둘게요").font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)
+                    if model.waiting>0{Text("승인 \(model.jobs.filter{$0.status=="approval"}.count) · 답변 \(model.jobs.filter{$0.status=="answer"}.count) · 오래 기다린 순").font(.system(size:11)).foregroundStyle(.secondary)}
+                };Spacer();Dust(status:model.networkAvailable==false ? "offline":model.fairyStatus).frame(width:100,height:95)}
                 if !model.currentJobs.isEmpty {
                     HStack{Label("고정한 대화 \(model.currentJobs.count)",systemImage:"pin.fill").font(.system(size:12,weight:.semibold)).foregroundStyle(.primary);Spacer();Button("완료 정리"){model.cleanCompleted()}.font(.system(size:11)).buttonStyle(.borderless)}
                     VStack(spacing:5){ForEach(model.currentJobs){current in
                         HStack(spacing:5){row(current);if !["approval","answer"].contains(current.status){Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help("고정 해제 · 대화는 삭제하지 않아요")}}
                     }}
                 }
-                HStack{Button("확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button("감지한 대화 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
+                HStack{Button(model.networkAvailable==false ? "상태 확인 불가":"확인할 작업 \(model.attentionJobs.count)"){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button("감지한 대화 \(model.jobs.count)"){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
                 VStack(alignment:.leading,spacing:4){
                     if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id)}){row($0)}}else{
                         ForEach(model.inboxJobs){row($0)}
@@ -423,7 +430,6 @@ struct Panel:View {
                 }.padding(.top,8)
             }
             if model.undoPins != nil{HStack{Text("작업 목록을 정리했어요");Spacer();Button("되돌리기"){model.undoCleanup()}}.font(.caption).foregroundStyle(.secondary)}
-            if model.networkAvailable==false{Label("네트워크 경로가 없어요. Wi-Fi·유선 연결을 확인해 주세요.",systemImage:"wifi.slash").font(.caption).foregroundStyle(.orange)}
             if let issue=model.liveIssue{Text(issue).font(.caption).foregroundStyle(.orange)}
             if let error=model.error{Text(error).font(.caption).foregroundStyle(.orange)}
             if let message=model.settingsError{Text(message).font(.caption).foregroundStyle(.secondary)}
@@ -436,14 +442,14 @@ struct Panel:View {
         }.padding(23).frame(width:440).tint(Palette.olive)
     }
     func stateColor(_ status:String)->Color {
-        switch status {case "approval":return .orange;case "answer":return Color(red:0.16,green:0.43,blue:0.49);case "failed":return .red;default:return Palette.olive}
+        switch status {case "approval":return Color(nsColor:NSColor(name:nil){$0.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor.systemOrange:NSColor(calibratedRed:0.64,green:0.29,blue:0.02,alpha:1)});case "answer":return Color(nsColor:NSColor(name:nil){$0.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor.systemTeal:NSColor(calibratedRed:0.10,green:0.36,blue:0.41,alpha:1)});case "failed":return .red;default:return Palette.olive}
     }
     func row(_ job:Job)->some View {
         Button{model.open(job.id)}label:{
             HStack(spacing:11){Group{if job.status=="inProgress"{RunningIndicator()}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).foregroundStyle(stateColor(job.status)).background(stateColor(job.status).opacity(0.12),in:RoundedRectangle(cornerRadius:9))
                 VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text("\(job.project) · \(job.reason ?? job.label)").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
-                    if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}
-                };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};if ["approval","answer"].contains(job.status){Label("열기",systemImage:"arrow.up.right").font(.system(size:12,weight:.semibold)).foregroundStyle(stateColor(job.status))}else{Image(systemName:"arrow.up.right").font(.system(size:11)).foregroundStyle(.secondary)}
+                    if ["approval","answer"].contains(job.status){if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}else{Text("대기 시간 확인 중").font(.system(size:11)).foregroundStyle(.secondary)}}
+                };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};if ["approval","answer"].contains(job.status){Label("열기",systemImage:"arrow.up.right").font(.system(size:12,weight:.semibold)).foregroundStyle(stateColor(job.status))}else{Label("열기",systemImage:"arrow.up.right").font(.system(size:11)).foregroundStyle(.secondary)}
             }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
         }.buttonStyle(.plain).help("Codex에서 \(job.title) 열기").contextMenu{Button("대화 고정"){model.makeCurrent(job.id)};
             if job.status=="unread"{Button("답변 나중에 보기"){model.deferReply(job)}}
