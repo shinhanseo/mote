@@ -63,6 +63,44 @@ struct LocalReader {
     @Published var liveIssue:String?
     @Published var lastSync:Date?
     @Published var deferred=MotePreferences.store.dictionary(forKey:"deferredReplies") as? [String:String] ?? [:] {didSet{MotePreferences.store.set(deferred,forKey:"deferredReplies")}}
+    @Published var privacyMode=MotePreferences.store.bool(forKey:"privacyMode") {didSet{MotePreferences.store.set(privacyMode,forKey:"privacyMode");displayAlerts.hideAll();UNUserNotificationCenter.current().removeAllDeliveredNotifications()}}
+    @Published var thresholdAlerts=MotePreferences.store.object(forKey:"thresholdAlerts") as? Bool ?? true {didSet{MotePreferences.store.set(thresholdAlerts,forKey:"thresholdAlerts")}}
+    @Published var awaySummaryEnabled=MotePreferences.store.object(forKey:"awaySummaryEnabled") as? Bool ?? true {didSet{MotePreferences.store.set(awaySummaryEnabled,forKey:"awaySummaryEnabled")}}
+    @Published var shortcutChoice=MotePreferences.store.object(forKey:"shortcutChoice") as? Int ?? 1 {didSet{MotePreferences.store.set(shortcutChoice,forKey:"shortcutChoice");if !shortcut.register(shortcutChoice){settingsError="단축키 등록 실패 · 다른 조합을 선택해 주세요."}}}
+    let shortcut=GlobalShortcut()
+    var thresholdPolicy=UsageThresholdPolicy(sent:Set(MotePreferences.store.stringArray(forKey:"thresholdSent") ?? []))
+    var snoozed=[String:SnoozedNotice]()
+    var awayNotices=[String:Job]()
+    var isAway=false
+    var screensAsleep=false
+    func visibleTitle(_ job:Job)->String{privacyMode ? "비공개 대화":job.title}
+    func snooze(_ ids:Set<String>,now:Date=Date()){
+        for id in ids {if let job=jobs.first(where:{$0.id==id}){snoozed[id]=SnoozedNotice(jobs:[job],due:now.addingTimeInterval(600))}}
+        displayAlerts.cancel(threads:ids)
+    }
+    func checkSnoozes(now:Date=Date()){
+        for (id,notice) in snoozed {
+            let pending=notice.unresolved(in:jobs)
+            if pending.isEmpty{snoozed.removeValue(forKey:id);continue}
+            guard notice.due<=now,!isAway,!paused,!muted else{continue}
+            snoozed.removeValue(forKey:id)
+            guard now.timeIntervalSince(notice.due)<600 else{continue}
+            deliver(pending,title:"모트 · 미뤄둔 작업을 확인해 주세요",body:pending.map(visibleTitle).joined(separator:" · "),sound:attentionSound,identifier:"snooze:"+id)
+        }
+    }
+    func setAway(_ away:Bool){
+        guard isAway != away else{return};isAway=away
+        if away {displayAlerts.hideAll();return}
+        let pending=awayNotices.values.filter{old in jobs.contains{$0.id==old.id && $0.turn==old.turn && ["approval","answer","unread","failed"].contains($0.status)}}
+        awayNotices=[:]
+        if awaySummaryEnabled,!pending.isEmpty,!paused,!muted {
+            let waiting=pending.filter{["approval","answer"].contains($0.status)}.count
+            deliver(Array(pending),title:"모트 · 자리 비운 사이 \(pending.count)건",body:"응답 대기 \(waiting)건 · 답변·오류 \(pending.count-waiting)건",sound:false,identifier:"away-summary:"+UUID().uuidString)
+        }
+    }
+    func openOldestWaiting(){
+        if let job=jobs.filter({["approval","answer"].contains($0.status)}).min(by:{($0.waitSince ?? .distantFuture)<($1.waitSince ?? .distantFuture)}){open(job.id)}else{onOpenInbox?()}
+    }
     @Published var showUsage=false
     @Published var usage:UsageSnapshot?
     @Published var usageLoading=false
@@ -94,8 +132,8 @@ struct LocalReader {
         return seconds>=300 ? "마지막 변화 \(seconds/60)분 전 · 오래 변화 없음":seconds>=60 ? "마지막 활동 \(seconds/60)분 전":"마지막 활동 \(seconds)초 전"
     }
     func checkWaitReminders(now:Date=Date()){
-        guard reminderEnabled,attentionAlerts,!muted,!paused,liveConnected else{return}
-        for job in jobs where ["approval","answer"].contains(job.status) {
+        guard reminderEnabled,attentionAlerts,!muted,!paused,!isAway,liveConnected else{return}
+        for job in jobs where ["approval","answer"].contains(job.status) && snoozed[job.id]==nil {
             guard let since=job.waitSince,now.timeIntervalSince(since)>=Double(reminderMinutes*60) else{continue}
             let state=liveStates[job.id]
             let key="reminder|"+NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:(state?.requestIDs ?? [])+(state?.asyncQuestionIDs ?? []))
@@ -109,6 +147,12 @@ struct LocalReader {
         usage=snapshot;usageLoading=false
         if let snapshot {resetPolicy.observe(snapshot,now:Date())}
         checkUsageResets()
+        if let snapshot,thresholdAlerts,!muted,!paused,!isAway {
+            for (minutes,threshold) in thresholdPolicy.observe(snapshot,now:Date()){
+                deliver([],title:"모트 · 한도가 얼마 남지 않았어요",body:"\(minutes==10080 ? "주간":"5시간") 한도 \(threshold)% 이하 · 로컬 기록 기준",sound:attentionSound,identifier:"threshold:\(minutes):\(threshold)")
+            }
+            MotePreferences.store.set(Array(thresholdPolicy.sent),forKey:"thresholdSent")
+        }
     }
     func checkUsageResets(){
         let due=resetPolicy.due(now:Date(),short:shortResetAlerts && !muted && !paused,weekly:weeklyResetAlerts && !muted && !paused)
@@ -180,6 +224,13 @@ struct LocalReader {
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
     var chosen: Job? { jobs.first{$0.id==selected} ?? jobs.first }
     func start() {
+        shortcut.action={[weak self] in self?.openOldestWaiting()}
+        if !shortcut.register(shortcutChoice){settingsError="단축키를 등록하지 못했어요. 설정에서 다른 조합을 선택해 주세요."}
+        displayAlerts.onSnooze={[weak self] ids in self?.snooze(ids)}
+        DistributedNotificationCenter.default().addObserver(forName:NSNotification.Name("com.apple.screenIsLocked"),object:nil,queue:.main){[weak self] _ in Task{@MainActor in self?.screensAsleep=true;self?.setAway(true)}}
+        DistributedNotificationCenter.default().addObserver(forName:NSNotification.Name("com.apple.screenIsUnlocked"),object:nil,queue:.main){[weak self] _ in Task{@MainActor in self?.screensAsleep=false;self?.refresh()}}
+        for name in [NSWorkspace.screensDidSleepNotification,NSWorkspace.sessionDidResignActiveNotification]{NSWorkspace.shared.notificationCenter.addObserver(forName:name,object:nil,queue:.main){[weak self] _ in Task{@MainActor in self?.screensAsleep=true;self?.setAway(true)}}}
+        for name in [NSWorkspace.screensDidWakeNotification,NSWorkspace.sessionDidBecomeActiveNotification]{NSWorkspace.shared.notificationCenter.addObserver(forName:name,object:nil,queue:.main){[weak self] _ in Task{@MainActor in self?.screensAsleep=false;self?.refresh()}}}
         connectivity.start{[weak self] available in Task{@MainActor in self?.receiveNetwork(available)}}
         live.onDiagnostic = {[weak self] message in Task{@MainActor in guard let self else{return};self.liveIssue=message;if message != nil{self.liveStates.removeAll();self.reconcile();self.onUpdate?()}}}
         live.onState = {[weak self] id,state in Task { @MainActor in self?.receive(id,state) }}
@@ -216,6 +267,11 @@ struct LocalReader {
         deliver(pending,title:title,body:pending.prefix(3).map(\.title).joined(separator:" · "),sound:completionSound,identifier:"complete:"+pending.map{$0.id+$0.turn}.sorted().joined(separator:":"))
     }
     func deliver(_ notices:[Job],title:String,body:String,sound:Bool,identifier:String){
+        if isAway {for job in notices{awayNotices[job.id]=job};return}
+        let originalCount=notices.count
+        let notices=notices.filter{snoozed[$0.id]==nil}
+        guard originalCount==0 || !notices.isEmpty else{return}
+        let body=privacyMode && !notices.isEmpty ? "대화 내용은 숨겨져 있어요. Mote에서 확인해 주세요.":body
         if let onNotice {onNotice(notices,title,body);return}
         let threads=Set(notices.map(\.id));alertThreads[identifier]=threads
         if alertDisplay != "system" {
@@ -224,6 +280,7 @@ struct LocalReader {
             };return
         }
         let content=UNMutableNotificationContent();content.title=title;content.body=body
+        if !notices.isEmpty{content.categoryIdentifier="MOTE_TASK"}
         if sound{content.sound = .default};content.userInfo=["threadID":notices.count==1 ? notices[0].id:"batch","threadIDs":Array(threads)]
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:identifier,content:content,trigger:nil)){error in
             if error != nil{Task{@MainActor in self.settingsError="알림 전송에 실패했어요. 알림 허용 설정을 확인해 주세요."}}
@@ -250,6 +307,8 @@ struct LocalReader {
         }
     }
     func refresh() {
+        if !demoMode,screensAsleep || CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)>300 {setAway(true)}
+        checkSnoozes()
         checkUsageResets()
         checkWaitReminders()
         refreshUsage()
@@ -268,6 +327,7 @@ struct LocalReader {
             if currentPolicy.started==0 {if let newest=chronological.last{followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}}
             else{for job in chronological{followNewTurn(id:job.id,turn:job.turn,started:job.startedAt)}}
             live.observe(found.map(\.id));reconcile();error=nil;baseline=true
+            if isAway,!screensAsleep,CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)<300 {setAway(false)}
         case .failure(let e): error=e.localizedDescription }
         onUpdate?()
     }
@@ -285,7 +345,7 @@ struct LocalReader {
         liveStates[id]=state
         if let kind=state.waiting,let raw=rawJobs.first(where:{$0.id==id}) {
             let signature=(state.latestTurn?.id ?? raw.turn)+kind+(state.requestIDs+state.asyncQuestionIDs).sorted().joined(separator:":")
-            if waitSignatures[id] != signature {var job=raw;job.turn=state.latestTurn?.id ?? raw.turn;job.status=kind;job.reason=state.requestReasons.values.sorted().first ?? (!state.asyncQuestionIDs.isEmpty ? "질문에 답변이 필요해요":nil);notify(job,requests:state.requestIDs+state.asyncQuestionIDs);waitSignatures[id]=signature}
+            if waitSignatures[id] != signature {if waitSignatures[id] != nil{snoozed.removeValue(forKey:id)};var job=raw;job.turn=state.latestTurn?.id ?? raw.turn;job.status=kind;job.reason=state.requestReasons.values.sorted().first ?? (!state.asyncQuestionIDs.isEmpty ? "질문에 답변이 필요해요":nil);notify(job,requests:state.requestIDs+state.asyncQuestionIDs);waitSignatures[id]=signature}
         }else{waitSignatures.removeValue(forKey:id)}
         reconcile();onUpdate?()
     }
@@ -442,7 +502,7 @@ struct Panel:View {
             }
             HStack{Button(model.notificationStatus){model.requestNotifications()};Spacer();Menu{Button("새로고침"){model.refresh()};Button(model.paused ? "알림 다시 켜기":"30분 동안 알림 쉬기"){if model.paused{model.resume()}else{model.pause()}};Button("테스트 알림"){model.notify(Job(id:"test",title:"모트 알림이 정상 작동해요",project:"",status:"completed",turn:UUID().uuidString),test:true)};Button("종료"){NSApp.terminate(nil)}}label:{Image(systemName:"ellipsis").frame(width:30,height:28).accessibilityLabel("더 보기")}}.font(.system(size:12,weight:.medium)).foregroundStyle(.primary).buttonStyle(.borderless)
             if model.paused,let until=model.pauseUntil{HStack{Text("알림 쉬는 중 · \(until.formatted(date:.omitted,time:.shortened))까지");Spacer();Button("다시 켜기"){model.resume()}}.font(.caption).foregroundStyle(.secondary)}
-        }.padding(23).frame(width:440).tint(Palette.olive)
+        }.padding(23).frame(width:440).tint(Palette.olive).disabled(model.demoMode)
     }
     func stateColor(_ status:String)->Color {
         switch status {case "approval":return Color(nsColor:NSColor(name:nil){$0.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor.systemOrange:NSColor(calibratedRed:0.64,green:0.29,blue:0.02,alpha:1)});case "answer":return Color(nsColor:NSColor(name:nil){$0.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor.systemTeal:NSColor(calibratedRed:0.10,green:0.36,blue:0.41,alpha:1)});case "failed":return .red;default:return Palette.olive}
@@ -450,11 +510,11 @@ struct Panel:View {
     func row(_ job:Job)->some View {
         Button{model.open(job.id)}label:{
             HStack(spacing:11){Group{if job.status=="inProgress"{RunningIndicator()}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).foregroundStyle(stateColor(job.status)).background(stateColor(job.status).opacity(0.12),in:RoundedRectangle(cornerRadius:9))
-                VStack(alignment:.leading,spacing:4){Text(job.title).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text("\(job.project) · \(job.reason ?? job.label)").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text("\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
+                VStack(alignment:.leading,spacing:4){Text(model.visibleTitle(job)).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:model.privacyMode ? "비공개":job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text(model.privacyMode ? job.label:"\(job.project) · \(job.reason ?? job.label)").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text(model.privacyMode ? job.label:"\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
                     if ["approval","answer"].contains(job.status){if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text("기다린 지 \(max(0,Int(context.date.timeIntervalSince(since)/60)))분 · 감지 시점 기준").font(.system(size:11)).foregroundStyle(.secondary)}}else{Text("대기 시간 확인 중").font(.system(size:11)).foregroundStyle(.secondary)}}
                 };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};if ["approval","answer"].contains(job.status){Label("열기",systemImage:"arrow.up.right").font(.system(size:12,weight:.semibold)).foregroundStyle(stateColor(job.status))}else{Label("열기",systemImage:"arrow.up.right").font(.system(size:11)).foregroundStyle(.secondary)}
             }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
-        }.buttonStyle(.plain).help("Codex에서 \(job.title) 열기").contextMenu{Button("대화 고정"){model.makeCurrent(job.id)};
+        }.buttonStyle(.plain).help("Codex에서 대화 열기").contextMenu{Button("대화 고정"){model.makeCurrent(job.id)};
             if job.status=="unread"{Button("답변 나중에 보기"){model.deferReply(job)}}
             if job.status=="deferred"{Button("미확인 답변으로 다시 표시"){model.restoreReply(job)}};if job.status=="failed"{Button("오류 확인했어요"){model.dismissError(job)}}}
     }
@@ -466,6 +526,10 @@ struct Panel:View {
             }}
             Text(model.alertDisplay == "system" ? "macOS 알림 설정과 집중 모드를 따릅니다.":"모트 알림은 집중 모드와 별도로 표시돼요. 입력 중인 창의 포커스는 유지돼요.").font(.caption).foregroundStyle(.secondary)
             Button("이 화면 설정으로 테스트 알림"){model.notify(Job(id:"test",title:"모트가 작업 화면으로 찾아왔어요",project:"",status:"completed",turn:UUID().uuidString),test:true)}
+            Toggle("개인정보 모드 · 제목과 프로젝트 숨기기",isOn:$model.privacyMode)
+            Toggle("자리 비움 후 요약",isOn:$model.awaySummaryEnabled)
+            Picker("가장 오래 기다린 대화 열기",selection:$model.shortcutChoice){Text("사용 안 함").tag(0);Text("⌃⌥Space").tag(1);Text("⌘⇧Space").tag(2)}
+            Toggle("사용량 20%·5% 임계 알림",isOn:$model.thresholdAlerts)
             Toggle("로그인 시 모트 실행",isOn:Binding(get:{model.loginEnabled},set:{model.setLogin($0)}))
             Divider()
             Toggle("승인·질문 알림",isOn:$model.attentionAlerts)
@@ -510,6 +574,8 @@ struct CompactPanel:View {
     func applicationDidFinishLaunching(_ notification:Notification){
         guard !didSetup else{return};didSetup=true
         fputs("Mote startup\n",stderr);NSApp.setActivationPolicy(.accessory);UNUserNotificationCenter.current().delegate=self
+        let snoozeAction=UNNotificationAction(identifier:"MOTE_SNOOZE",title:"10분 뒤 다시",options:[])
+        UNUserNotificationCenter.current().setNotificationCategories([UNNotificationCategory(identifier:"MOTE_TASK",actions:[snoozeAction],intentIdentifiers:[],options:[])])
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         item.button?.target=self;item.button?.action=#selector(toggle)
         menuFairy=MenuFairy(button:item.button);menuFairy.update("idle")
@@ -574,7 +640,7 @@ struct CompactPanel:View {
         panel.makeKeyAndOrderFront(nil);NSApp.activate(ignoringOtherApps:true)
     }
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification,withCompletionHandler completion:@escaping(UNNotificationPresentationOptions)->Void){completion([.banner,.sound])}
-    nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse,withCompletionHandler completion:@escaping()->Void){let id=response.notification.request.content.userInfo["threadID"] as? String;Task{@MainActor in if id=="batch"{self.monitor.onOpenInbox?()}else if let id,id != "test"{self.monitor.open(id)}};completion()}
+    nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse,withCompletionHandler completion:@escaping()->Void){let id=response.notification.request.content.userInfo["threadID"] as? String;Task{@MainActor in if response.actionIdentifier=="MOTE_SNOOZE"{let ids=Set(response.notification.request.content.userInfo["threadIDs"] as? [String] ?? id.map{[$0]} ?? []);self.monitor.snooze(ids)}else if id=="batch"{self.monitor.onOpenInbox?()}else if let id,id != "test"{self.monitor.open(id)}};completion()}
 }
 if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {if CommandLine.arguments.contains("--titles"){print(job.title)};print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let lockURL=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Mote")
 try? FileManager.default.createDirectory(at:lockURL,withIntermediateDirectories:true)

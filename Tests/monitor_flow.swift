@@ -98,6 +98,34 @@ MainActor.assumeIsolated {
     expect(watchCount==2 && watch.activityLabel(running.id).contains("네트워크"),"offline notifies once and overrides activity caption")
     watch.networkAvailable=true;watch.lastActivity[running.id]=Date().addingTimeInterval(-601)
     expect(watch.activityLabel(running.id).contains("오래 변화 없음"),"long silence is labeled without claiming failure")
+    let policyNow=Date()
+    let low=UsageSnapshot(recorded:policyNow,windows:[UsageSnapshot.Window(used:96,minutes:300,reset:policyNow.addingTimeInterval(3600))])
+    var thresholds=UsageThresholdPolicy(sent:[])
+    expect(thresholds.observe(low,now:policyNow).count==1,"initial 4% only emits urgent threshold")
+    expect(thresholds.observe(low,now:policyNow).isEmpty,"threshold cannot duplicate")
+    let staleQuota=UsageSnapshot(recorded:policyNow.addingTimeInterval(-1000),windows:low.windows)
+    var stalePolicy=UsageThresholdPolicy(sent:[])
+    expect(stalePolicy.observe(staleQuota,now:policyNow).isEmpty,"stale quota cannot alert")
+    let notice=SnoozedNotice(jobs:[waitingJob],due:policyNow)
+    expect(notice.unresolved(in:[complete]).isEmpty,"snooze cannot resurrect resolved turn")
+    let privateMonitor=Monitor();privateMonitor.jobs=[complete];privateMonitor.privacyMode=true
+    expect(privateMonitor.visibleTitle(complete)=="비공개 대화","privacy hides title")
+    privateMonitor.privacyMode=false
+    var awayDelivered=0;privateMonitor.onNotice={_,_,_ in awayDelivered += 1}
+    privateMonitor.setAway(true);privateMonitor.deliver([complete],title:"test",body:"fixture",sound:false,identifier:"fixture")
+    expect(awayDelivered==0,"away suppresses delivery")
+    privateMonitor.jobs=[];privateMonitor.setAway(false);expect(awayDelivered==0,"resolved away items excluded")
+    let sn=Monitor();sn.jobs=[Job(id:"snooze",title:"fixture",project:"fixture",status:"answer",turn:"t")];sn.muted=false;sn.pauseUntil=nil
+    var snCount=0;sn.onNotice={_,_,_ in snCount += 1}
+    sn.snooze(["snooze"],now:policyNow)
+    sn.deliver(sn.jobs,title:"test",body:"fixture",sound:false,identifier:"sn")
+    expect(snCount==0,"snoozed thread suppresses immediate toast")
+    sn.checkSnoozes(now:policyNow.addingTimeInterval(601));sn.checkSnoozes(now:policyNow.addingTimeInterval(602))
+    expect(snCount==1,"snooze resumes once after ten minutes")
+    var twenties=UsageThresholdPolicy(sent:[])
+    let twenty=UsageSnapshot(recorded:policyNow,windows:[UsageSnapshot.Window(used:81,minutes:300,reset:policyNow.addingTimeInterval(3600))])
+    expect(twenties.observe(twenty,now:policyNow).first?.1==20,"20 percent warning")
+    expect(twenties.observe(low,now:policyNow).first?.1==5,"5 percent warning is independent")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

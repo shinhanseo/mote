@@ -57,6 +57,10 @@ struct UsageDashboard:View {
                     VStack(alignment:.leading,spacing:6){
                         HStack{Text(window.title).font(.caption);Spacer();Text(window.expired(Date()) ? "새 기록 대기":"\(window.remaining)% 남음").font(.system(size:12,weight:.semibold)).monospacedDigit()}
                         ProgressView(value:100-window.used,total:100).tint(window.remaining<=20 ? .orange:Palette.olive).opacity(window.expired(Date()) ? 0.3:1)
+                        if let reset=window.reset,window.remaining<=20,!window.expired(Date()){TimelineView(.periodic(from:.now,by:60)){context in
+                            let minutes=max(0,Int(reset.timeIntervalSince(context.date)/60))
+                            Text("초기화까지 \(minutes/60)시간 \(minutes%60)분 · 예정 시각 기준").font(.system(size:12,weight:.medium))
+                        }}
                         if let reset=window.reset {Text(window.expired(Date()) ? "초기화 시각 경과 · 최신 사용량은 아직 확인되지 않았어요":"초기화 · \(reset.formatted(date:.abbreviated,time:.shortened))").font(.system(size:10)).foregroundStyle(.secondary)}
                     }
                 }

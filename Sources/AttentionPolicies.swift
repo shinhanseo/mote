@@ -1,0 +1,24 @@
+import Foundation
+
+struct UsageThresholdPolicy {
+    var sent:Set<String>
+    mutating func observe(_ snapshot:UsageSnapshot,now:Date)->[(Int,Int)] {
+        guard now.timeIntervalSince(snapshot.recorded)>=0,now.timeIntervalSince(snapshot.recorded)<900 else{return []}
+        var notices=[(Int,Int)]()
+        for window in snapshot.windows {
+            guard let reset=window.reset,reset>now else{continue}
+            let crossed=[20,5].filter{window.remaining <= $0}
+            for threshold in crossed {
+                let key="\(window.minutes):\(Int(reset.timeIntervalSince1970)):\(threshold)"
+                if sent.insert(key).inserted,threshold==crossed.last {notices.append((window.minutes,threshold))}
+            }
+        }
+        if sent.count>500{sent=Set(sent.sorted().suffix(300))}
+        return notices
+    }
+}
+struct SnoozedNotice {
+    let jobs:[Job]
+    let due:Date
+    func unresolved(in current:[Job])->[Job]{jobs.compactMap{old in current.first{$0.id==old.id && $0.turn==old.turn && $0.status==old.status && ["approval","answer","unread","failed"].contains($0.status)}}}
+}

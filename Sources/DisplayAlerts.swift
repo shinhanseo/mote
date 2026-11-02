@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor final class DisplayAlerts {
     private var panel:NSPanel?
+    var onSnooze:((Set<String>)->Void)?
     private var hideTask:Task<Void,Never>?
     private var pending:[(title:String,body:String,threads:Set<String>,open:()->Void)]=[]
     private var currentThreads=Set<String>()
@@ -14,6 +15,7 @@ import SwiftUI
         if sound{NSSound(named:"Glass")?.play()}
         if panel?.isVisible != true{next()}
     }
+    func hideAll(){pending=[];hideTask?.cancel();panel?.orderOut(nil);currentThreads=[]}
     func cancel(threads:Set<String>){
         pending.removeAll{PresentationPolicy.resolvedGroup($0.threads,by:threads)}
         if PresentationPolicy.resolvedGroup(currentThreads,by:threads){next()}
@@ -33,18 +35,19 @@ import SwiftUI
         let p=NSPanel(contentRect:frame,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         p.isOpaque=false;p.backgroundColor = .clear;p.hasShadow=true;p.level = .statusBar
         p.collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.ignoresCycle];p.hidesOnDeactivate=false;p.isReleasedWhenClosed=false
-        let view=DisplayAlertView(title:alert.title,message:alert.body,open:{[weak self] in alert.open();self?.next()},close:{[weak self] in self?.next()})
+        let view=DisplayAlertView(title:alert.title,message:alert.body,open:{[weak self] in alert.open();self?.next()},close:{[weak self] in self?.next()},snooze:alert.threads.isEmpty ? nil:{[weak self] in self?.onSnooze?(alert.threads);self?.next()})
         p.contentView=NSHostingView(rootView:view.frame(width:frame.width,height:frame.height).background(Glass()).clipShape(RoundedRectangle(cornerRadius:17)))
         panel=p;p.orderFrontRegardless() // Never activate Mote or steal typing focus.
         hideTask=Task{[weak self] in try? await Task.sleep(nanoseconds:10_000_000_000);guard !Task.isCancelled else{return};self?.next()}
     }
 }
 struct DisplayAlertView:View {
-    var title:String;var message:String;var open:()->Void;var close:()->Void
+    var title:String;var message:String;var open:()->Void;var close:()->Void;var snooze:(()->Void)? = nil
     var bodyView:some View {
         HStack(alignment:.center,spacing:9){
             Image(systemName:title.contains("승인") ? "hand.raised":title.contains("답변") || title.contains("응답") ? "message":title.contains("네트워크") ? "wifi.slash":"envelope").font(.system(size:18)).foregroundStyle(title.contains("승인") || title.contains("네트워크") ? Color.orange:title.contains("답변") || title.contains("응답") ? Color(nsColor:.systemTeal):Palette.olive).frame(width:24,height:22).accessibilityHidden(true)
             Button(action:open){VStack(alignment:.leading,spacing:4){Text(title).font(.system(size:13,weight:.semibold));Text(message.replacingOccurrences(of:"\n",with:" · ")).font(.system(size:12)).lineLimit(1).multilineTextAlignment(.leading)}.frame(maxWidth:.infinity,alignment:.leading)}.buttonStyle(.plain)
+            if let snooze{Button(action:snooze){Image(systemName:"clock.arrow.circlepath").font(.system(size:12))}.buttonStyle(.plain).help("10분 뒤 다시 알림").accessibilityLabel("10분 뒤 다시 알림")}
             Button("열기",action:open).font(.system(size:11,weight:.semibold)).buttonStyle(.plain).help("해당 대화 열기 · 승인이나 답변을 대신 보내지 않아요")
             Button(action:close){Image(systemName:"xmark").font(.system(size:11)).frame(width:24,height:24)}.buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("알림 닫기")
         }.padding(12)
