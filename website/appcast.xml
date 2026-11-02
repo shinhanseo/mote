@@ -1,0 +1,19 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Mote</title>
+        <item>
+            <title>0.4.0</title>
+            <pubDate>Mon, 02 Nov 2026 14:50:00 +0900</pubDate>
+            <link>https://shinhanseo.github.io/mote/</link>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/shinhanseo/mote/releases/download/v0.4.0/Mote-0.4.0.dmg" length="2952257" type="application/octet-stream" sparkle:edSignature="LP8Rm1zgcOakFvorfYLhStu8EBsy5qDpKaYyqRTxp4WvJ1FDbwqYZQZNe+GyGAgzBt97cXXLkNtZEro68ViZAg=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: NZlpbPVLQNzIBImkjwX1KzTQVFsCsid4Jldqxx6qcJOiDbCeJs8y0tSJ3uEZe9z/gDXoJ+JHrPGDC7TdZQa2BQ==
+length: 1091
+-->
