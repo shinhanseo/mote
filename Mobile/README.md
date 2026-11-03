@@ -83,3 +83,6 @@ Actual owner Mac connection attempt returned `Invalid bundle ID for container` a
 ## Container reassociation verification
 
 On the owner Mac, removing and restoring the existing `dev.local.mote` → `iCloud.im.mote.companion` assignment resolved `Invalid bundle ID for container`. A fresh owner test run in Production successfully registered the Mac and saved a newly created completion test event. iPhone subscription was enabled by the owner; physical push receipt must be confirmed separately. The active owner Mac test build is development-signed, not a new public notarized release.
+
+
+Production subscription error reproduction: the owner iPhone reported “attempting to create a subscription in a production container”. The exact three `CloudRelay.subscribe` query subscriptions were successfully created in Development using a signed Mac setup build, followed by a Production schema deployment (CloudKit Console confirmed Changes Deployed). This setup is necessary in addition to record type/index deployment. Owner iPhone retry/receipt verification remains separate from schema deployment.

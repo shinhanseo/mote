@@ -291,6 +291,9 @@ struct LocalReader {
     var chosen: Job? { jobs.first{$0.id==selected} ?? jobs.first }
     func start() {
         Task{
+            if CommandLine.arguments.contains("--prepare-mobile-subscriptions") {
+                do{try await CloudRelay().subscribe(kinds:["completed","approval","answer"]);fputs("Mote mobile subscription types prepared\n",stderr)}catch{fputs("Mote mobile subscription setup: \(error.localizedDescription)\n",stderr)}
+            }
             if CommandLine.arguments.contains("--connect-mobile") {
                 await mobile.connect()
                 if mobile.enabled,CommandLine.arguments.contains("--test-mobile"){await mobile.test();fputs(mobile.issue == nil ? "Mote mobile test saved to CloudKit\n":"Mote mobile test failed\n",stderr)}
