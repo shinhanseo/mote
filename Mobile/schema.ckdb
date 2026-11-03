@@ -1,0 +1,19 @@
+DEFINE SCHEMA
+
+RECORD TYPE MoteMac (
+    "___recordID" REFERENCE QUERYABLE,
+    name STRING,
+    lastSeen TIMESTAMP,
+    GRANT CREATE TO "_icloud",
+    GRANT READ, WRITE TO "_creator"
+);
+
+RECORD TYPE MoteEvent (
+    "___recordID" REFERENCE QUERYABLE,
+    kind STRING QUERYABLE,
+    title STRING,
+    macName STRING,
+    occurredAt TIMESTAMP QUERYABLE SORTABLE,
+    GRANT CREATE TO "_icloud",
+    GRANT READ, WRITE TO "_creator"
+);

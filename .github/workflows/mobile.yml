@@ -1,0 +1,20 @@
+name: Build iPhone companion
+on:
+  push:
+    paths: ['Mobile/**', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['Mobile/**', '.github/workflows/mobile.yml']
+jobs:
+  simulator:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate relay and safe unsigned configuration
+        run: |
+          swiftc -parse-as-library Mobile/Shared/CloudRelay.swift Mobile/Tests/RelayTests.swift -o /tmp/mote-relay-tests
+          /tmp/mote-relay-tests
+      - name: Build simulator app without cloud credentials
+        run: |
+          xcodebuild -project Mobile/MoteMobile.xcodeproj -scheme MoteMobile \
+            -configuration Debug -sdk iphonesimulator -derivedDataPath /tmp/mote-mobile \
+            CODE_SIGNING_ALLOWED=NO build
