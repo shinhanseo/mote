@@ -68,3 +68,12 @@ check(reconnect.waiting==nil,"reconnect cannot revive an old question")
 check(reconnect.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["threadRuntimeStatus"],"value":["type":"active","activeFlags":["waitingOnApproval"]]]]]),"real approval")
 check(reconnect.waiting=="approval","actual current approval still detected")
 print("PASS: async prompts scoped to latest turn; ordinary replies and reconnect clear historic waits")
+
+var sameTurn=LiveState()
+var continued=oldPrompt
+continued["items"]=[["type":"agentMessage","id":"old-question","questions":[["title":"fixture"]]],["type":"steeringUserMessage","status":"accepted","content":[["type":"text","text":"이렇게 왔음"]]],["type":"agentMessage","id":"new-question","questions":[["title":"fixture"]]]]
+check(sameTurn.apply(["type":"snapshot","revision":1,"conversationState":["threadRuntimeStatus":["type":"idle"],"turnHistory":["history":["entitiesByKey":["turn:same":continued]]]]]),"same turn continuation")
+check(sameTurn.asyncQuestionIDs.count==1 && !sameTurn.asyncQuestionIDs.joined().contains("old-question"),"same-turn continuation clears old question but preserves newer prompt")
+check(sameTurn.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["turnHistory","history","entitiesByKey","turn:same","items",3],"value":["type":"steeringUserMessage","status":"accepted","content":[["type":"text","text":"확인했어"]]]]]]),"same turn later continuation")
+check(sameTurn.waiting==nil,"normal steering reply clears remaining old prompt")
+print("PASS: same-turn accepted user continuations clear prior async prompts and retain new questions")

@@ -331,7 +331,8 @@ struct LocalReader {
         let key=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)
         guard test || ledger.claim(key) else{return}
         if !test{MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")}
-        if !test,["completed","approval","answer"].contains(job.status),snoozed[job.id]==nil {
+        if !test,["completed","approval","answer"].contains(job.status),snoozed[job.id]==nil,
+            MobileNotifier.shouldSend(awayOnly:mobile.awayOnly,locked:screensAsleep,idleSeconds:CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)) {
             Task{await mobile.send(thread:job.id,turn:job.turn,kind:job.status,title:job.title,privateMode:privacyMode)}
         }
         let content=UNMutableNotificationContent()

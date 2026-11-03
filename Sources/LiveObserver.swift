@@ -19,7 +19,11 @@ struct LiveState {
         // each streamed token grows CPU usage with conversation length.
         guard let latest=latestTurn else{return []}
         let latestKeys=turns.filter{$0.value.id==latest.id}.map(\.key)
-        let currentItems=questionItems.filter{entry in latestKeys.contains{entry.key.hasPrefix($0+"/")}}.map(\.value)
+        let currentEntries=questionItems.filter{entry in latestKeys.contains{entry.key.hasPrefix($0+"/")}}
+        // A normal user continuation can be an accepted steering message in the
+        // SAME turn. It supersedes older async prompts just as a new turn does.
+        let continuation=currentEntries.filter{$0.value["continues"] as? Bool == true}.keys.compactMap{Int($0.split(separator:"/").last ?? "")}.max() ?? -1
+        let currentItems=currentEntries.filter{(Int($0.key.split(separator:"/").last ?? "") ?? -1)>continuation}.map(\.value)
         guard currentItems.contains(where:{($0["count"] as? Int ?? 0)>0}) else{return []}
         let answered=Set(questionItems.values.flatMap{$0["answered"] as? [String] ?? []})
         return currentItems.flatMap { item -> [String] in
@@ -44,6 +48,8 @@ struct LiveState {
             if let a=text.range(of:start,options:.backwards),let b=text.range(of:end,range:a.upperBound..<text.endIndex),let data=String(text[a.upperBound..<b.lowerBound]).data(using:.utf8),let object=try? JSONSerialization.jsonObject(with:data) {
                 let replies=(object as? [[String:Any]]) ?? (object as? [String:Any]).map{[$0]} ?? []
                 result["answered"]=replies.compactMap{$0["questionItemId"] as? String}
+            }else if !text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || parts.contains(where:{$0["type"] as? String == "image"}) {
+                result["continues"]=true
             }
         }
         return result
@@ -52,7 +58,7 @@ struct LiveState {
         questionItems=questionItems.filter{!$0.key.hasPrefix(key+"/")}
         for (index,item) in (object["items"] as? [[String:Any]] ?? []).enumerated(){
             let metadata=Self.questionMetadata(item)
-            if metadata["id"] != nil || metadata["answered"] != nil {questionItems[key+"/"+String(index)]=metadata}
+            if metadata["id"] != nil || metadata["answered"] != nil || metadata["continues"] != nil {questionItems[key+"/"+String(index)]=metadata}
         }
     }
     mutating func capture(_ key:String,_ object:[String:Any]){
@@ -117,6 +123,10 @@ struct LiveState {
                 if path.count==6 {
                     if op=="remove"{questionItems.removeValue(forKey:itemKey)}
                     else if let item=patch["value"] as? [String:Any]{questionItems[itemKey]=Self.questionMetadata(item)}
+                } else if path.count==7,path[6] as? String == "status",questionItems[itemKey]?["type"] as? String == "steeringUserMessage" {
+                    return false // Accepted steering content must be reclassified from a fresh snapshot.
+                } else if path.count>7,["content","input"].contains(path[6] as? String ?? ""),let type=questionItems[itemKey]?["type"] as? String,["userMessage","steeringUserMessage"].contains(type) {
+                    return false // Re-fetch metadata when a reply is streamed in pieces.
                 } else if path.count==7,["content","input"].contains(path[6] as? String ?? ""),let field=path[6] as? String {
                     var item=questionItems[itemKey] ?? [:];item[field]=patch["value"]
                     questionItems[itemKey]=Self.questionMetadata(item)

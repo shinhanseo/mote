@@ -3,6 +3,11 @@ import Combine
 
 MainActor.assumeIsolated {
     func expect(_ result:Bool,_ message:String){precondition(result,message)}
+    expect(!MobileNotifier.shouldSend(awayOnly:true,locked:false,idleSeconds:0),"active Mac suppresses mobile duplicates")
+    expect(MobileNotifier.shouldSend(awayOnly:true,locked:true,idleSeconds:0),"locked Mac routes mobile")
+    expect(!MobileNotifier.shouldSend(awayOnly:true,locked:false,idleSeconds:299),"idle threshold boundary")
+    expect(MobileNotifier.shouldSend(awayOnly:true,locked:false,idleSeconds:300),"away Mac routes mobile")
+    expect(MobileNotifier.shouldSend(awayOnly:false,locked:false,idleSeconds:0),"explicit always-send mode")
     let m=Monitor();m.ledger=NotificationLedger();m.completionAlerts=true;m.attentionAlerts=true;m.errorAlerts=true;m.muted=false;m.pauseUntil=nil
     var delivered=[(count:Int,title:String)]()
     m.onNotice={jobs,title,_ in delivered.append((jobs.count,title))}

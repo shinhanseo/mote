@@ -5,6 +5,7 @@ import CryptoKit
 /// Explicitly enabled relay; unsigned builds cannot initialize CloudKit.
 @MainActor final class MobileNotifier:ObservableObject {
     @Published var enabled=false
+    @Published var awayOnly=true {didSet{defaults.set(awayOnly,forKey:"mobileAwayOnly")}}
     private let defaults:UserDefaults
     @Published var shareTitles=false {didSet{defaults.set(shareTitles,forKey:"mobileShareTitles")}}
     @Published var issue:String?
@@ -14,6 +15,7 @@ import CryptoKit
     private var sending=false
     init(defaults:UserDefaults = .standard) {
         self.defaults=defaults
+        awayOnly=defaults.object(forKey:"mobileAwayOnly") as? Bool ?? true
         shareTitles=defaults.bool(forKey:"mobileShareTitles")
         if let data=defaults.data(forKey:"mobilePending"),let saved=try? JSONDecoder().decode([RelayEvent].self,from:data){pending=saved.filter{Date().timeIntervalSince($0.createdAt)<3600}.map{RelayEvent(id:$0.id,kind:$0.kind,title:"",macName:$0.macName,createdAt:$0.createdAt)}}
         if let id=defaults.string(forKey:"mobileInstallationID"){installationID=id}
@@ -38,6 +40,9 @@ import CryptoKit
         shareTitles=previous
     }
     func test() async {await send(thread:"test",turn:UUID().uuidString,kind:"completed",title:"",privateMode:true)}
+    static func shouldSend(awayOnly:Bool,locked:Bool,idleSeconds:Double)->Bool {
+        !awayOnly || locked || idleSeconds>=300
+    }
     func send(thread:String,turn:String,kind:String,title:String,privateMode:Bool) async {
         guard enabled,["completed","approval","answer"].contains(kind) else{return}
         let fingerprint=[installationID,thread,turn,kind].joined(separator:"\n")
