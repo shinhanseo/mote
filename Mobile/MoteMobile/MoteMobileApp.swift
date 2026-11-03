@@ -110,6 +110,7 @@ struct HistoryView:View {
 }
 struct SettingsView:View {
     @EnvironmentObject var store:MobileStore
+    @State private var preview=false
     var body:some View {
         Page {
             Text("나에게 맞게").font(.system(size:32,weight:.semibold)).tracking(-1.5).padding(.top,25).padding(.bottom,34)
@@ -131,8 +132,10 @@ struct SettingsView:View {
             Text("3초 뒤 이 기기에 알림을 표시해요. Mac 연동 테스트와는 별개예요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(5).padding(.top,8)
             Button("iPhone 알림 설정 열기"){if let url=URL(string:UIApplication.openSettingsURLString){UIApplication.shared.open(url)}}.padding(.top,18)
             if let issue=store.issue{IssueNote(text:issue).padding(.top,24)}
+            if !store.demo {Button("디자인 미리보기"){preview=true}.padding(.top,24)}
             Text("Mote for iPhone · 개발 중\nCloudKit을 사용하며 별도 운영 서버는 없어요.\n승인과 답변을 대신 전송하지 않아요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(6).padding(.top,38)
         }.toolbar(.hidden,for:.navigationBar)
+        .fullScreenCover(isPresented:$preview){PreviewScreen()}
     }
     func caption(_ text:String)->some View {VStack(alignment:.leading,spacing:12){Text(text).font(.system(size:12,weight:.medium)).foregroundStyle(Ink.olive);Rectangle().fill(Ink.line).frame(height:1)}}
 }
@@ -157,4 +160,15 @@ struct DetailView:View {
 struct IssueNote:View {
     let text:String
     var body:some View {HStack(alignment:.top,spacing:9){Image(systemName:"info.circle");Text(text).fixedSize(horizontal:false,vertical:true)}.font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(4)}
+}
+
+struct PreviewScreen:View {
+    @StateObject private var preview=MobileStore(demo:true)
+    @Environment(\.dismiss) private var dismiss
+    var body:some View {
+        VStack(spacing:0){
+            HStack{Text("예시 데이터 · 실제 작업이 아니에요").font(.caption).foregroundStyle(.secondary);Spacer();Button("미리보기 닫기"){dismiss()}}.padding(.horizontal,20).padding(.top,12).padding(.bottom,8).background(Ink.paper)
+            RootView().environmentObject(preview)
+        }
+    }
 }

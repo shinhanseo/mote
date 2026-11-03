@@ -49,7 +49,7 @@ Event recordName is a SHA-256 of installation identity + thread + turn + kind. C
 
 Before a real beta:
 
-1. Development schema and query/sort indexes were imported and verified in CloudKit Console (`schema.ckdb`). Only the default Users type existed beforehand. Production schema has not been deployed; deploy only after real-device verification.
+1. Development schema and query/sort indexes were imported and verified in CloudKit Console (`schema.ckdb`). Only the default Users type existed beforehand. The schema was subsequently deployed to Production for the owner-only TestFlight prototype. Real-device end-to-end delivery is still unverified.
 2. Associate a development Mac App ID/profile with this container. Compile `Shared/CloudRelay.swift` and `MacIntegration/MobileNotifier.swift` into an opt-in Mac build with `MoteCloudKitEnabled=true` and appropriate iCloud entitlements. The normal public Mac binary must not enable CloudKit without provisioning.
 3. Wire `connect()` to an explicit Mac setting. Only after successful account/registration checks enable sending.
 4. Route existing completion/approval/input notices to `send(...)`, respecting pause, privacy, snooze and away policy. Await results and surface failures. The adapter starts disabled, does not persist consent yet, and has no offline retry queue yet.
@@ -60,3 +60,10 @@ Before a real beta:
 The existing approved Mac release is unchanged. This work does not provide remote Codex approval/reply, guarantee instant push delivery, or keep a sleeping Mac running.
 
 Apple references: [enable CloudKit](https://developer.apple.com/documentation/cloudkit/enabling-cloudkit-in-your-app), [creation subscriptions](https://developer.apple.com/documentation/cloudkit/ckquerysubscription/options/firesonrecordcreation).
+
+
+## Owner-only TestFlight prototype
+
+App Store Connect app ID: `6830032833` (Mote — Codex 알림). The first prototype archive is `0.1.0 (1)`. Release explicitly selects the Production CloudKit environment and declares OS-provided/exempt encryption metadata. Internal group: `Mote 개발 테스트`; owner account only. No public App Store submission or external beta review is requested.
+
+Settings → 디자인 미리보기 opens clearly labeled sample data. Settings → iPhone에서 테스트 알림 받기 schedules a local notification; this does not verify Mac-to-iPhone push. The Mac sender remains an unintegrated opt-in adapter at this stage.
