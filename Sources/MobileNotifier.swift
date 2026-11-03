@@ -50,7 +50,7 @@ import CryptoKit
     }
     func send(thread:String,turn:String,kind:String,title:String,privateMode:Bool,requests:[String]=[]) async {
         guard enabled,["completed","approval","answer"].contains(kind) else{return}
-        let fingerprint=[installationID,thread,turn,kind].joined(separator:"\n")
+        let fingerprint=([installationID,thread,turn,kind]+requests.sorted()).joined(separator:"\n")
         let id=SHA256.hash(data:Data(fingerprint.utf8)).map{String(format:"%02x",$0)}.joined()
         let acceptsReply=remoteReplies && kind=="answer" && requests.count==1
         let until=Date().addingTimeInterval(1800)
