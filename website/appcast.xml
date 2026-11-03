@@ -4,16 +4,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Mote</title>
         <item>
-            <title>0.4.4</title>
-            <pubDate>Tue, 03 Nov 2026 13:08:17 +0900</pubDate>
+            <title>0.4.5</title>
+            <pubDate>Tue, 03 Nov 2026 13:18:17 +0900</pubDate>
             <link>https://shinhanseo.github.io/mote/</link>
-            <sparkle:version>9</sparkle:version>
-            <sparkle:shortVersionString>0.4.4</sparkle:shortVersionString>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.4.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/shinhanseo/mote/releases/download/v0.4.4/Mote-0.4.4.dmg" length="2603496" type="application/octet-stream" sparkle:edSignature="W3Yb6cUM7iSKrPEZYYrzOHIi+pYZJ37y4Ueu0Dr3wfCHri/qGlGvPq524iMRXyqwThUj3rDf4iMU+xWXJGvOCA=="></enclosure>
+            <enclosure url="https://github.com/shinhanseo/mote/releases/download/v0.4.5/Mote-0.4.5.dmg" length="2608068" type="application/octet-stream" sparkle:edSignature="QrZmcRMqGcltnU3lsiJh/ATv+SL325rONvWtQAFyV5Dj8urtEDKe8ZIz5ZVj9rU1IsOXTg++3PmyDY5QnwOwDA=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: C3Yr2wGLLvHCTpVQAL/swaOOq1/UO/LrGjx0osBA8ICrg5T2lBWcsU/BUrTM2Ba6pvneJzugJandUXRO1LizCA==
-length: 1091
+edSignature: P50w3J4NH5qc7s0FHEalOrLTuKniDTA6xEgv6diOdMZYG3O0fhmI9D+ZiqseDiUHN8VzFXVo23dWfkVH/laYCA==
+length: 1092
 -->
