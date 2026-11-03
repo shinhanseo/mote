@@ -275,6 +275,7 @@ struct LocalReader {
     func setLogin(_ enabled:Bool){do{if enabled{try SMAppService.mainApp.register()}else{try SMAppService.mainApp.unregister()};loginEnabled=SMAppService.mainApp.status == .enabled;settingsError=SMAppService.mainApp.status == .requiresApproval ? L10n.text("시스템 설정의 로그인 항목에서 허용해 주세요."):nil}catch{settingsError=L10n.text("자동 실행 설정 실패: {0}", [String(describing: error.localizedDescription)]);loginEnabled=SMAppService.mainApp.status == .enabled}}
     func dismissError(_ job:Job){dismissedErrors.append(job.id+job.turn);dismissedErrors=Array(dismissedErrors.suffix(500));MotePreferences.store.set(dismissedErrors,forKey:"dismissedErrors");reconcile();onUpdate?()}
 
+    let mobile=MobileNotifier()
     let live=LiveObserver();var rawJobs=[Job]();var liveStates=[String:LiveState]();var waitSignatures=[String:String]()
     var waiting:Int {jobs.filter{["approval","answer"].contains($0.status)}.count}
     var unread:Int {jobs.filter{$0.status=="unread"}.count}
@@ -289,6 +290,12 @@ struct LocalReader {
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
     var chosen: Job? { jobs.first{$0.id==selected} ?? jobs.first }
     func start() {
+        Task{
+            if CommandLine.arguments.contains("--connect-mobile") {
+                await mobile.connect()
+                fputs(mobile.enabled ? "Mote mobile relay connected\n":"Mote mobile relay: \(mobile.issue ?? "unknown")\n",stderr)
+            }else{await mobile.restore()}
+        }
         shortcut.action={[weak self] in self?.openOldestWaiting()}
         if !shortcut.register(shortcutChoice){settingsError=L10n.text("단축키를 등록하지 못했어요. 설정에서 다른 조합을 선택해 주세요.")}
         displayAlerts.onSnooze={[weak self] ids in self?.snooze(ids)}
@@ -316,6 +323,9 @@ struct LocalReader {
         let key=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)
         guard test || ledger.claim(key) else{return}
         if !test{MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")}
+        if !test,["completed","approval","answer"].contains(job.status),snoozed[job.id]==nil {
+            Task{await mobile.send(thread:job.id,turn:job.turn,kind:job.status,title:job.title,privateMode:privacyMode)}
+        }
         let content=UNMutableNotificationContent()
         content.title=test ? L10n.text("모트 · 테스트 알림") : ["approval":L10n.text("모트 · 승인이 필요해요"),"answer":L10n.text("모트 · 답변을 기다리고 있어요"),"failed":L10n.text("모트 · 작업에 문제가 생겼어요")][job.status] ?? L10n.text("모트 · 작업이 끝났어요")
         content.body=String(job.title.prefix(100))+(job.reason.map{"\n"+$0} ?? "");if test || (attention ? attentionSound:completionSound){content.sound = .default};content.userInfo=["threadID":job.id]
@@ -379,7 +389,7 @@ struct LocalReader {
         checkUsageResets()
         checkWaitReminders()
         refreshUsage()
-        if Date().timeIntervalSince(lastWatchScan)>30 {lastWatchScan=Date();recordWatcher.rescanEventually()}
+        if Date().timeIntervalSince(lastWatchScan)>30 {lastWatchScan=Date();recordWatcher.rescanEventually();Task{await mobile.flush()}}
         // Keep housekeeping responsive without reopening every database every 3s.
         guard forceRead || recordsDirty || Date().timeIntervalSince(lastRecordRead)>30 else{return}
         // A token stream can write the WAL continuously. Never turn filesystem

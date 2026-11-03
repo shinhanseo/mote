@@ -1,9 +1,9 @@
 name: Build iPhone companion
 on:
   push:
-    paths: ['Mobile/**', '.github/workflows/mobile.yml']
+    paths: ['Mobile/**', 'Sources/CloudRelay.swift', '.github/workflows/mobile.yml']
   pull_request:
-    paths: ['Mobile/**', '.github/workflows/mobile.yml']
+    paths: ['Mobile/**', 'Sources/CloudRelay.swift', '.github/workflows/mobile.yml']
 jobs:
   simulator:
     runs-on: macos-latest
@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate relay and safe unsigned configuration
         run: |
-          swiftc -parse-as-library Mobile/Shared/CloudRelay.swift Mobile/Tests/RelayTests.swift -o /tmp/mote-relay-tests
+          swiftc -parse-as-library Sources/CloudRelay.swift Mobile/Tests/RelayTests.swift -o /tmp/mote-relay-tests
           /tmp/mote-relay-tests
       - name: Build simulator app without cloud credentials
         run: |

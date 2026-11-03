@@ -26,7 +26,7 @@ xcodebuild -project Mobile/MoteMobile.xcodeproj -scheme MoteMobile \
   -configuration Debug -sdk iphonesimulator -derivedDataPath /tmp/mote-mobile \
   CODE_SIGNING_ALLOWED=NO build
 
-swiftc -parse-as-library Mobile/Shared/CloudRelay.swift Mobile/Tests/RelayTests.swift \
+swiftc -parse-as-library Sources/CloudRelay.swift Mobile/Tests/RelayTests.swift \
   -o /tmp/mote-relay-tests && /tmp/mote-relay-tests
 ```
 
@@ -50,7 +50,7 @@ Event recordName is a SHA-256 of installation identity + thread + turn + kind. C
 Before a real beta:
 
 1. Development schema and query/sort indexes were imported and verified in CloudKit Console (`schema.ckdb`). Only the default Users type existed beforehand. The schema was subsequently deployed to Production for the owner-only TestFlight prototype. Real-device end-to-end delivery is still unverified.
-2. Associate a development Mac App ID/profile with this container. Compile `Shared/CloudRelay.swift` and `MacIntegration/MobileNotifier.swift` into an opt-in Mac build with `MoteCloudKitEnabled=true` and appropriate iCloud entitlements. The normal public Mac binary must not enable CloudKit without provisioning.
+2. Associate a development Mac App ID/profile with this container. Compile `Sources/CloudRelay.swift` and `Sources/MobileNotifier.swift` into an opt-in Mac build with `MoteCloudKitEnabled=true` and appropriate iCloud entitlements. The normal public Mac binary must not enable CloudKit without provisioning.
 3. Wire `connect()` to an explicit Mac setting. Only after successful account/registration checks enable sending.
 4. Route existing completion/approval/input notices to `send(...)`, respecting pause, privacy, snooze and away policy. Await results and surface failures. The adapter starts disabled, does not persist consent yet, and has no offline retry queue yet.
 5. Add bounded expiration/deletion of old event records and a durable, expiring retry queue before enabling automatic sending broadly. Current receiver only fetches up to 100 events from the last 7 days; old cloud records are not automatically deleted yet.
@@ -67,3 +67,14 @@ Apple references: [enable CloudKit](https://developer.apple.com/documentation/cl
 App Store Connect app ID: `6830032833` (Mote — Codex 알림). The first prototype archive is `0.1.0 (1)`. Release explicitly selects the Production CloudKit environment and declares OS-provided/exempt encryption metadata. Internal group: `Mote 개발 테스트`; owner account only. No public App Store submission or external beta review is requested.
 
 Settings → 디자인 미리보기 opens clearly labeled sample data. Settings → iPhone에서 테스트 알림 받기 schedules a local notification; this does not verify Mac-to-iPhone push. The Mac sender remains an unintegrated opt-in adapter at this stage.
+
+
+## Build 2 / Mac relay integration work
+
+Build 0.1.0 (2) adds an explicit White / Dark / System selector; White is the default. The Mac monitor now calls the opt-in notifier for completion, approval and input-required events after notification policy and deduplication. It sends even when the Mac is away; mute/pause and matching notification-type settings still apply. Title sharing is off by default. Failed events have a bounded 100-item queue with one-hour expiration, retried on the existing 30-second maintenance tick. Pending events persist with blank titles.
+
+The shared transport now lives in `Sources/CloudRelay.swift`, and the mobile project references that canonical file. The Mac Settings connection section exposes connect / disconnect / test push controls. The regular Mac build still has CloudKit disabled and shows an explicit unavailable-build message; a correctly provisioned Mac binary is required before enabling the feature.
+
+Local build and regression tests are not end-to-end push verification. Mac CloudKit provisioning and owner iPhone receipt must be verified before announcing delivery as working.
+
+Actual owner Mac connection attempt returned `Invalid bundle ID for container` at CloudKit record fetch. The signed profile alone was insufficient: the Developer portal App ID/container association must be corrected before end-to-end delivery can be verified. Browser automation was disabled at that point. Do not describe Mac push as operational until this is resolved. `build-mac-cloud.sh` prepares isolated provisioned Mac test builds without changing public build defaults.

@@ -18,6 +18,8 @@ struct DiagnosticsView:View {
             }
             Text(L10n.text("진단 정보에는 기록 구조만 포함되며 대화 내용과 제목은 포함되지 않아요.")).font(.caption).foregroundStyle(.secondary)
             Divider()
+            MobileRelaySettings(mobile:model.mobile)
+            Divider()
             Text("Mote \(updates.version)").font(.headline)
             Text(L10n.text("설정과 작업 상태는 이 Mac에 저장돼요.")).font(.caption).foregroundStyle(.secondary)
             Button(L10n.text("업데이트 확인 및 설치")){updates.installUpdate()}
@@ -29,6 +31,22 @@ struct DiagnosticsView:View {
             }
             if !updates.message.isEmpty{Text(L10n.text(updates.message)).font(.caption).foregroundStyle(.secondary)}
             Text(L10n.text("업데이트 확인은 GitHub 공개 릴리스에만 접속해요. 자동 확인을 켜면 실행 중 6시간마다 확인하며, 대화 내용은 보내지 않아요.")).font(.system(size:11)).foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct MobileRelaySettings:View {
+    @ObservedObject var mobile:MobileNotifier
+    var body:some View {
+        VStack(alignment:.leading,spacing:10){
+            Text("아이폰 알림").font(.headline)
+            Text("같은 iCloud 계정의 아이폰으로 완료·승인·입력 필요 알림을 보내요. 대화 제목은 기본적으로 보내지 않아요.").font(.caption).foregroundStyle(.secondary)
+            if mobile.enabled {
+                Label("iCloud 전송 켜짐",systemImage:"iphone")
+                Toggle("대화 제목도 보내기",isOn:$mobile.shareTitles)
+                HStack{Button("아이폰에 테스트 알림"){Task{await mobile.test()}};Button("연결 끄기"){mobile.disconnect()}}
+            }else{Button("아이폰 알림 연결"){Task{await mobile.connect()}}}
+            if let issue=mobile.issue{Text(issue).font(.caption).foregroundStyle(.orange)}
         }
     }
 }

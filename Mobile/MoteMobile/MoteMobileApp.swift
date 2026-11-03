@@ -3,10 +3,12 @@ import SwiftUI
 @main struct MoteMobileApp:App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject var store=MobileStore()
+    @AppStorage("appearance") var appearance="light"
     @Environment(\.scenePhase) var phase
     var body:some Scene {
         WindowGroup {
             RootView().environmentObject(store)
+                .preferredColorScheme(appearance=="system" ? nil:appearance=="dark" ? .dark:.light)
                 .task{await store.refresh()}
                 .onChange(of:phase){_,new in if new == .active{Task{await store.refresh()}}}
                 .onReceive(NotificationCenter.default.publisher(for:.moteRefresh)){_ in Task{await store.refresh()}}
@@ -111,9 +113,12 @@ struct HistoryView:View {
 struct SettingsView:View {
     @EnvironmentObject var store:MobileStore
     @State private var preview=false
+    @AppStorage("appearance") var appearance="light"
     var body:some View {
         Page {
             Text("나에게 맞게").font(.system(size:32,weight:.semibold)).tracking(-1.5).padding(.top,25).padding(.bottom,34)
+            caption("화면")
+            Picker("화면 모드",selection:$appearance){Text("화이트").tag("light");Text("다크").tag("dark");Text("시스템").tag("system")}.pickerStyle(.segmented).padding(.vertical,20)
             caption("연결")
             if store.macs.isEmpty {Text("연결된 Mac이 없어요").font(.system(size:16)).padding(.vertical,20)}
             ForEach(store.macs){mac in HStack{Image(systemName:"laptopcomputer");Text(mac.name);Spacer()}.padding(.vertical,20)}
