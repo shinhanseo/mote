@@ -62,3 +62,25 @@ with tempfile.TemporaryDirectory() as h:
  out=subprocess.check_output([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True)
  assert '24 completed unread=true' in out,out
  print('PASS: unread conversation outside recent 20 stays monitored')
+
+# Older/different desktop schemas may omit optional columns and rotate history versions.
+with tempfile.TemporaryDirectory() as h:
+ c=sqlite3.connect(h+'/state_7.sqlite');c.execute('CREATE TABLE threads(id,name)')
+ c.execute('INSERT INTO threads VALUES(?,?)',('portable','Portable title'));c.commit()
+ d=sqlite3.connect(h+'/thread_history_2.sqlite');d.execute('CREATE TABLE thread_turns(thread_id,turn_id,status,rollout_ordinal)')
+ d.execute('INSERT INTO thread_turns VALUES(?,?,?,?)',('portable','t','inProgress',1));d.commit()
+ out=subprocess.check_output([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True)
+ assert 'portable inProgress' in out,out
+ print('PASS: optional thread columns, missing start time and rotated history version')
+
+with tempfile.TemporaryDirectory() as h:
+ c=sqlite3.connect(h+'/state_5.sqlite');c.execute('CREATE TABLE threads(id)');c.commit()
+ out=subprocess.run([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True,capture_output=True)
+ assert out.returncode==1 and '대화 상태 기록이 없어요' in out.stderr,out
+ print('PASS: missing status database is not reported as a changed schema or idle')
+
+with tempfile.TemporaryDirectory() as h:
+ c=sqlite3.connect(h+'/state_5.sqlite');c.execute('CREATE TABLE threads(unexpected)');c.commit()
+ out=subprocess.run([str(binary),'--diagnose'],env={**os.environ,'CODEX_HOME':h},text=True,capture_output=True)
+ assert out.returncode==1 and 'threads.id' in out.stderr,out
+ print('PASS: unsupported required schema identifies database and field')

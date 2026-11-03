@@ -11,6 +11,12 @@ struct DiagnosticsView:View {
             if let synced=model.lastSync{Text(L10n.text("기록 동기화 · {0}", [String(describing: synced.moteFormatted(date:.omitted,time:.standard))])).font(.caption).foregroundStyle(.secondary)}
             Text(L10n.text("{0}개 대화 감지 · {1}", [String(describing: model.jobs.count), String(describing: model.notificationStatus)])).font(.caption).foregroundStyle(.secondary)
             HStack{Button(L10n.text("다시 확인")){model.refresh();model.updatePermission()};Button(L10n.text("GitHub 열기")){updates.openProject()}}.buttonStyle(.borderless)
+            if let error=model.error {Text(error).font(.caption).foregroundStyle(.orange)}
+            Button(L10n.text("진단 정보 복사")){
+                let summary=LocalReader.diagnosticSummary()
+                NSPasteboard.general.clearContents();NSPasteboard.general.setString(summary,forType:.string)
+            }
+            Text(L10n.text("진단 정보에는 기록 구조만 포함되며 대화 내용과 제목은 포함되지 않아요.")).font(.caption).foregroundStyle(.secondary)
             Divider()
             Text("Mote \(updates.version)").font(.headline)
             Text(L10n.text("설정과 작업 상태는 이 Mac에 저장돼요.")).font(.caption).foregroundStyle(.secondary)

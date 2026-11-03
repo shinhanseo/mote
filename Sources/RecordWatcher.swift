@@ -19,7 +19,8 @@ final class RecordWatcher:@unchecked Sendable {
     private func rescan(){
         let names=(try? FileManager.default.contentsOfDirectory(atPath:home)) ?? []
         let state=names.filter{$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}.sorted{$0.localizedStandardCompare($1) == .orderedDescending}.first
-        let databaseNames=[state,"thread_history_1.sqlite"].compactMap{$0}
+        let history=names.filter{$0.hasPrefix("thread_history_") && $0.hasSuffix(".sqlite")}.sorted{$0.localizedStandardCompare($1) == .orderedDescending}.first
+        let databaseNames=[state,history].compactMap{$0}
         let selected=databaseNames.flatMap{[$0,$0+"-wal"]}.filter{names.contains($0)}
         let paths=Set([home]+selected.map{home+"/"+$0})
         for path in Array(watches.keys) where !paths.contains(path){watches.removeValue(forKey:path)?.source.cancel();scheduleChange()}

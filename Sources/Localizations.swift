@@ -17,6 +17,13 @@ enum L10n {
         return value
     }
     static let english:[String:String] = [
+        "Codex 기록이 사용 중이에요. 다시 시도하고 있어요.":"Codex records are busy. Retrying.",
+        "이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.":"This Codex record structure is not supported yet. Check diagnostics in connection settings.",
+        "Codex 대화 상태 기록이 없어요. Codex 앱에서 대화를 시작한 뒤 다시 확인해 주세요.":"Codex conversation status records are missing. Start a conversation in the Codex app and try again.",
+        "작업 상태를 확인할 수 없어요.":"Unable to check task status.",
+        "기록 확인 필요":"Check records",
+        "진단 정보 복사":"Copy diagnostics",
+        "진단 정보에는 기록 구조만 포함되며 대화 내용과 제목은 포함되지 않아요.":"Diagnostics include record structure only, without conversation content or titles.",
         "업데이트 확인 및 설치":"Check for Updates & Install",
         "앱에서 업데이트":"Update in App",
         "서명된 업데이트를 내려받아 설치하고 Mote를 다시 실행해요. 설치 전 확인 창이 표시됩니다.":"Download a signed update, install it, and relaunch Mote. You will confirm before installation.",

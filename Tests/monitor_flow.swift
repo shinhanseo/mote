@@ -186,6 +186,12 @@ MainActor.assumeIsolated {
     try! quota(30).write(to:cachePath,options:.atomic)
     expect(UsageSnapshot.readFile(cachePath.path)?.windows.first?.used==30,"replacement invalidates cached empty file")
     print("PASS: unchanged model does not republish; quota cache handles append, truncate, replacement")
+    m.apply(.failure(LocalReader.failure("Codex 기록 읽기 실패",code:3)))
+    expect(Panel(model:m).headline==L10n.text("작업 상태를 확인할 수 없어요."),"record read failure cannot present idle")
+    expect(m.error==L10n.text("Codex 기록 읽기 실패"),"reader error should have actionable localized text")
+    m.apply(.success([]))
+    expect(m.error==nil,"a successful retry clears the reader error")
+    print("PASS: record failure shows unknown status and recovery clears error")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

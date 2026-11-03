@@ -14,25 +14,62 @@ struct Job: Identifiable, Equatable {
     var symbol: String { switch status {case "deferred":return "clock";case "reviewedError":return "checkmark";case "unread": return "envelope.badge"; case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
 }
 struct LocalReader {
+    static func failure(_ message:String, code:Int, detail:String="")->NSError {
+        let text=L10n.text(message)+(detail.isEmpty ? "":" · "+detail)
+        return NSError(domain:"Mote.LocalReader",code:code,userInfo:[NSLocalizedDescriptionKey:text])
+    }
     static func query(_ path: String, _ sql: String) throws -> [[String]] {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { if let db { sqlite3_close(db) }; throw NSError(domain: L10n.text("Codex 기록을 열 수 없어요"), code: 1) }
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { if let db { sqlite3_close(db) }; throw failure("Codex 기록을 열 수 없어요",code:1,detail:URL(fileURLWithPath:path).lastPathComponent) }
         defer { sqlite3_close(db) }; sqlite3_busy_timeout(db, 1000)
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw NSError(domain: L10n.text("Codex 기록 형식이 변경되었어요"), code: 2) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { let result=sqlite3_errcode(db)
+            if result==SQLITE_BUSY || result==SQLITE_LOCKED {throw failure("Codex 기록이 사용 중이에요. 다시 시도하고 있어요.",code:5)}
+            throw failure("이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.",code:2,detail:URL(fileURLWithPath:path).lastPathComponent) }
         defer { sqlite3_finalize(stmt) }; var rows = [[String]]()
-        while true { let step = sqlite3_step(stmt); if step == SQLITE_DONE { break }; guard step == SQLITE_ROW else { throw NSError(domain: L10n.text("Codex 기록 읽기 실패"), code: 3) }
+        while true { let step = sqlite3_step(stmt); if step == SQLITE_DONE { break }; guard step == SQLITE_ROW else { throw failure("Codex 기록 읽기 실패",code:3) }
             rows.append((0..<sqlite3_column_count(stmt)).map { i in sqlite3_column_text(stmt,i).map { String(cString:$0) } ?? "" })
         }; return rows
+    }
+    // Schema only: never includes titles, prompts, IDs, row data or home paths.
+    static func diagnosticSummary()->String {
+        let home=ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory()+"/.codex"
+        let files=(try? FileManager.default.contentsOfDirectory(atPath:home)) ?? []
+        var lines=["Mote \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")", "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"]
+        for prefix in ["state_","thread_history_"] {
+            guard let name=files.filter({$0.hasPrefix(prefix) && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else {lines.append(prefix+"*: missing");continue}
+            for table in (prefix=="state_" ? ["threads","thread_read_receipts"]:["thread_turns"]) {
+                do {let columns=try query(home+"/"+name,"PRAGMA table_info(\(table))").map{$0[1]};lines.append(name+" / "+table+": "+columns.joined(separator:","))}
+                catch {lines.append(name+" / "+table+": unreadable")}
+            }
+        }
+        return lines.joined(separator:"\n")
     }
     static func read(currentIDs:Set<String>=[]) throws -> [Job] {
         let home = ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory()+"/.codex"
         let files = try FileManager.default.contentsOfDirectory(atPath:home)
-        guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw NSError(domain:L10n.text("Codex 기록을 찾지 못했어요"),code:4) }
+        guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw failure("Codex 기록을 찾지 못했어요",code:4) }
         let columns=try query(home+"/"+state,"PRAGMA table_info(threads)").map{$0[1]}
         let titleColumn=columns.contains("name") ? "COALESCE(NULLIF(TRIM(name),''),'')" : "''"
-        let threads = try query(home+"/"+state,"SELECT id, \(titleColumn), cwd FROM threads WHERE archived=0 AND agent_path IS NULL ORDER BY updated_at DESC")
-        let turns = try query(home+"/thread_history_1.sqlite", "SELECT t.thread_id,t.turn_id,t.status,COALESCE(t.started_at,0) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
+        guard columns.contains("id") else {throw failure("이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.",code:2,detail:state+": threads.id")}
+        let cwd=columns.contains("cwd") ? "COALESCE(cwd,'')":"''"
+        var filters=[String]()
+        if columns.contains("archived"){filters.append("COALESCE(archived,0)=0")}
+        if columns.contains("agent_path"){filters.append("agent_path IS NULL")}
+        let condition=filters.isEmpty ? "":" WHERE "+filters.joined(separator:" AND ")
+        let order=columns.contains("updated_at") ? "updated_at DESC, id":"id"
+        let threads = try query(home+"/"+state,"SELECT id, \(titleColumn), \(cwd) FROM threads\(condition) ORDER BY \(order)")
+        guard let history=files.filter({$0.hasPrefix("thread_history_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else {
+            throw failure("Codex 대화 상태 기록이 없어요. Codex 앱에서 대화를 시작한 뒤 다시 확인해 주세요.",code:6)
+        }
+        let historyPath=home+"/"+history
+        let turnColumns=try query(historyPath,"PRAGMA table_info(thread_turns)").map{$0[1]}
+        let required=["thread_id","turn_id","status","rollout_ordinal"]
+        guard required.allSatisfy({turnColumns.contains($0)}) else {
+            throw failure("이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.",code:2,detail:history+": thread_turns")
+        }
+        let started=turnColumns.contains("started_at") ? "COALESCE(t.started_at,0)":"0"
+        let turns = try query(historyPath, "SELECT t.thread_id,t.turn_id,t.status,\(started) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
         // Desktop read receipts are authoritative for the published turn. Stream snapshots
         // can retain hasUnreadTurn after the desktop handles a separate read-state event.
         let receiptRows=(try? query(home+"/"+state,"SELECT thread_id, first_unread_turn IS NOT NULL, COALESCE(last_published_turn,'') FROM thread_read_receipts")) ?? []
@@ -43,7 +80,7 @@ struct LocalReader {
             // In-progress rows can survive a terminated Codex process. Never invent completion.
             if status == "inProgress", let stamp = Double(t?[3] ?? "0") {
                 let seconds = stamp > 10_000_000_000 ? stamp/1000 : stamp
-                if Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
+                if seconds>0 && Date().timeIntervalSince1970-seconds > 6*3600 { status="unknown" }
             }
             let receipt:Bool?=receipts[row[0]].flatMap{r in r[2] == t?[1] ? r[1] == "1" : nil}
             guard index<20 || t?[2]=="inProgress" || receipt==true || currentIDs.contains(row[0]) else{return nil}
@@ -480,6 +517,7 @@ struct UpdateNotice:View {
 struct Panel:View {
     @ObservedObject var model:Monitor
     var headline:String {
+        if model.error != nil{return L10n.text("작업 상태를 확인할 수 없어요.")}
         if model.networkAvailable==false{return L10n.text("네트워크 연결을\n확인해 주세요.")}
         if model.waiting>0 {
             let approvals=model.jobs.filter{$0.status=="approval"}.count
@@ -492,7 +530,7 @@ struct Panel:View {
     }
     var body:some View {
         VStack(alignment:.leading,spacing:16){
-            HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill(model.networkAvailable==false ? Color.orange:model.liveConnected ? Palette.olive:Color.orange).frame(width:6,height:6);Text(model.networkAvailable==false ? L10n.text("네트워크 없음"):model.liveIssue != nil ? L10n.text("기록 감지"):model.liveConnected ? L10n.text("연결됨"):L10n.text("재연결 중")).font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel(L10n.text("설정"))}
+            HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill((model.error != nil || model.networkAvailable==false) ? Color.orange:model.liveConnected ? Palette.olive:Color.orange).frame(width:6,height:6);Text(model.error != nil ? L10n.text("기록 확인 필요"):model.networkAvailable==false ? L10n.text("네트워크 없음"):model.liveIssue != nil ? L10n.text("기록 감지"):model.liveConnected ? L10n.text("연결됨"):L10n.text("재연결 중")).font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel(L10n.text("설정"))}
             UpdateNotice(updates:model.updates)
             if model.demoMode{Text(L10n.text("미리보기 · 실제 대화와 무관한 테스트 상태")).font(.caption).foregroundStyle(.orange)}
             if model.showSettings{settings}else{
@@ -505,7 +543,7 @@ struct Panel:View {
                         HStack(spacing:5){row(current);if !["approval","answer"].contains(current.status){Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help(L10n.text("고정 해제 · 대화는 삭제하지 않아요"))}}
                     }}
                 }
-                HStack{Button(model.networkAvailable==false ? L10n.text("상태 확인 불가"):L10n.text("확인할 작업 {0}", [String(describing: model.attentionJobs.count)])){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button(L10n.text("감지한 대화 {0}", [String(describing: model.jobs.count)])){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
+                HStack{Button((model.error != nil || model.networkAvailable==false) ? L10n.text("상태 확인 불가"):L10n.text("확인할 작업 {0}", [String(describing: model.attentionJobs.count)])){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button(L10n.text("감지한 대화 {0}", [String(describing: model.jobs.count)])){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
                 VStack(alignment:.leading,spacing:4){
                     if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id)}){row($0)}}else{
                         ForEach(model.inboxJobs){row($0)}
