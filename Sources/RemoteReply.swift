@@ -101,7 +101,7 @@ final class CodexReplyClient {
    let input:[[String:Any]]=[["type":"text","text":text,"text_elements":[]]]
    if state.latestTurn?.status=="inProgress" {
     method="thread-follower-steer-turn";version=1
-    params=["conversationId":route.thread,"input":input,"clientUserMessageId":id]
+    params=["conversationId":route.thread,"input":input,"clientUserMessageId":id,"restoreMessage":["id":id,"input":input,"context":["workspaceRoots":[],"commentAttachments":[]]]]
    } else {
     method="thread-follower-start-turn";version=2
     params=["conversationId":route.thread,"turnStart":["request":["threadId":route.thread,"input":input,"clientUserMessageId":id],"context":["inheritThreadSettings":true]]]

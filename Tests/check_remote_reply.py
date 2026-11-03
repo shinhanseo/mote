@@ -50,6 +50,6 @@ do{try CodexReplyClient().deliver("fixture answer",route:route,id:"reply-fixture
    expected={'active':'thread-follower-steer-turn','completed':'thread-follower-start-turn','tool':'thread-follower-submit-user-input'}[mode]
    assert m['method']==expected,(mode,m['method'])
    if mode=='tool':assert m['params']['response']['answers']['q']['answers']==['fixture answer']
-   elif mode=='active':assert m['params']['input'][0]['text']=='fixture answer' and m['params']['clientUserMessageId']=='reply-fixture'
+   elif mode=='active':assert m['params']['input'][0]['text']=='fixture answer' and m['params']['clientUserMessageId']=='reply-fixture' and m['params']['restoreMessage']['context']=={'workspaceRoots':[],'commentAttachments':[]}
    else:assert m['params']['turnStart']['request']['input'][0]['text']=='fixture answer' and m['params']['turnStart']['context']=={'inheritThreadSettings':True}
   print('PASS:',mode,'reply routing / stale request guard')
