@@ -45,3 +45,5 @@ Reports: GA4 Mote Website → Reports → acquisition (source/medium), engagemen
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.2/Mote-0.4.2.dmg
 
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.3/Mote-0.4.3.dmg
+
+Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.4/Mote-0.4.4.dmg
