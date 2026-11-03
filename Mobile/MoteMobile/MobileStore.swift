@@ -90,6 +90,14 @@ import UIKit
             try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:"local-test",content:content,trigger:UNTimeIntervalNotificationTrigger(timeInterval:3,repeats:false)))
         }catch{issue=error.localizedDescription}
     }
+    func sendReply(_ event:RelayEvent,text:String) async throws -> RelayReply {
+        guard !demo else{throw ReplyCloudError.expired}
+        return try await relay.queueReply(event:event,text:text)
+    }
+    func replyStatus(_ event:RelayEvent) async throws -> RelayReply? {
+        guard !demo,event.replyMac != nil else{return nil}
+        return try await relay.reply(eventID:event.id)
+    }
     func title(_ event:RelayEvent)->String {hideTitles && !demo ? "Mac에서 확인할 작업":event.title.isEmpty ? "Mac에서 확인할 작업":event.title}
 }
 final class AppDelegate:NSObject,UIApplicationDelegate,UNUserNotificationCenterDelegate {

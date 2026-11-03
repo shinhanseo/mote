@@ -138,7 +138,7 @@ struct SettingsView:View {
             Button("iPhone 알림 설정 열기"){if let url=URL(string:UIApplication.openSettingsURLString){UIApplication.shared.open(url)}}.padding(.top,18)
             if let issue=store.issue{IssueNote(text:issue).padding(.top,24)}
             if !store.demo {Button("디자인 미리보기"){preview=true}.padding(.top,24)}
-            Text("Mote for iPhone · 개발 중\nCloudKit을 사용하며 별도 운영 서버는 없어요.\n승인과 답변을 대신 전송하지 않아요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(6).padding(.top,38)
+            Text("Mote for iPhone · 개발 중\nCloudKit을 사용하며 별도 운영 서버는 없어요.\n답변 전송은 Mac에서 켤 수 있어요. 승인은 Mac에서 해요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(6).padding(.top,38)
         }.toolbar(.hidden,for:.navigationBar)
         .fullScreenCover(isPresented:$preview){PreviewScreen()}
     }
@@ -155,7 +155,8 @@ struct DetailView:View {
             Text(store.title(event)).font(.system(size:19)).padding(.top,17)
             Text(event.macName+" · "+event.createdAt.formatted(date:.abbreviated,time:.shortened)).font(.caption).foregroundStyle(.secondary).padding(.top,12)
             Rectangle().fill(Ink.line).frame(height:1).padding(.vertical,25)
-            Text("알림이 도착한 시점의 상태예요.\n정확한 진행 상황과 승인·답변은 Mac의 Codex에서 확인해 주세요.").font(.system(size:15)).foregroundStyle(.secondary).lineSpacing(6)
+            Text("알림이 도착한 시점의 상태예요.\n정확한 진행 상황과 승인은 Mac의 Codex에서 확인해 주세요.").font(.system(size:15)).foregroundStyle(.secondary).lineSpacing(6)
+            if event.replyMac != nil && event.kind=="answer" {RemoteReplyComposer(event:event).padding(.top,24)}
             Button("이 iPhone에서 확인했어요"){store.acknowledge(event);dismiss()}.buttonStyle(.borderedProminent).controlSize(.large).padding(.top,30)
             Button("10분 뒤 다시 알려줘요"){Task{await store.snooze(event);dismiss()}}.padding(.top,18)
             Text("확인 표시는 이 iPhone에만 저장돼요. Mac의 읽음 상태나 Codex 작업은 바뀌지 않아요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(5).padding(.top,20)
@@ -174,6 +175,50 @@ struct PreviewScreen:View {
         VStack(spacing:0){
             HStack{Text("예시 데이터 · 실제 작업이 아니에요").font(.caption).foregroundStyle(.secondary);Spacer();Button("미리보기 닫기"){dismiss()}}.padding(.horizontal,20).padding(.top,12).padding(.bottom,8).background(Ink.paper)
             RootView().environmentObject(preview)
+        }
+    }
+}
+
+struct RemoteReplyComposer:View {
+    @EnvironmentObject var store:MobileStore
+    let event:RelayEvent
+    @State private var text=""
+    @State private var reply:RelayReply?
+    @State private var sending=false
+    @State private var checking=true
+    @State private var error:String?
+    private var status:String {
+        guard let reply else{return event.canReply ? "Mac에서 기다리는 질문에 답변해요.":"답변 가능한 시간이 지났어요."}
+        if ["queued","delivering"].contains(reply.status),reply.expiresAt<=Date(){return "전달 시간이 지났어요. Mac에서 결과를 확인해 주세요."}
+        switch reply.status {
+        case "queued":return reply.expiresAt>Date() ? "Mac에 전달을 기다리고 있어요. Mac이 켜져 있어야 해요.":"전달 시간이 지났어요. Mac에서 확인해 주세요."
+        case "delivering":return "Codex에 전달 중이에요."
+        case "delivered":return "Codex가 답변을 받았어요."
+        default:return reply.message.isEmpty ? "전송 결과를 Mac에서 확인해 주세요.":reply.message
+        }
+    }
+    var body:some View {
+        VStack(alignment:.leading,spacing:14){
+            Text("Mac에 답변 보내기").font(.system(size:17,weight:.medium))
+            Text(status).font(.system(size:13)).foregroundStyle(.secondary)
+            if reply==nil && event.canReply {
+                TextField("질문에 대한 답변",text:$text,axis:.vertical).lineLimit(3...8).padding(.vertical,10)
+                Rectangle().fill(Ink.line).frame(height:1)
+                Text("답변은 개인 iCloud에 암호화해 전달해요. 이미 끝난 질문에는 보내지 않아요.").font(.system(size:12)).foregroundStyle(.secondary)
+                Button {
+                    sending=true;error=nil
+                    Task {defer{sending=false};do{reply=try await store.sendReply(event,text:text);text=""}catch{self.error=error.localizedDescription}}
+                }label:{HStack{Text(sending ? "전송 중…":"답변 보내기");Spacer();Image(systemName:"arrow.up")}}
+                .disabled(sending || checking || text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || text.count>4000)
+            }
+            if checking{ProgressView().controlSize(.small)}
+            if let error{Text(error).font(.caption).foregroundStyle(.orange)}
+        }.task(id:event.id){
+            while !Task.isCancelled {
+                do{reply=try await store.replyStatus(event);error=nil}catch{self.error=error.localizedDescription}
+                checking=false
+                do{try await Task.sleep(nanoseconds:3_000_000_000)}catch{break}
+            }
         }
     }
 }

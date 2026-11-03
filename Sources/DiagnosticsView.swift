@@ -45,6 +45,8 @@ struct MobileRelaySettings:View {
                 Label("iCloud 전송 켜짐",systemImage:"iphone")
                 Toggle("Mac 잠금·자리 비움 때만 보내기",isOn:$mobile.awayOnly)
                 Text("Mac을 사용하는 동안은 Mac에서만 알려요. 잠그거나 5분간 입력이 없으면 새 작업 알림을 아이폰으로 보내요.").font(.caption).foregroundStyle(.secondary)
+                Toggle("아이폰에서 답변 보내기",isOn:$mobile.remoteReplies)
+                Text("입력 필요 알림에서 일반 답변을 보낼 수 있어요. 답변은 개인 iCloud에 암호화해 전달하고, Mac이 켜져 있어야 해요. 승인은 Mac에서만 해요.").font(.caption).foregroundStyle(.secondary)
                 Toggle("대화 제목도 보내기",isOn:$mobile.shareTitles)
                 HStack{Button("아이폰에 테스트 알림"){Task{await mobile.test()}};Button("연결 끄기"){mobile.disconnect()}}
             }else{Button("아이폰 알림 연결"){Task{await mobile.connect()}}}

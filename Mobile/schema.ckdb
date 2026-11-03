@@ -14,6 +14,20 @@ RECORD TYPE MoteEvent (
     title STRING,
     macName STRING,
     occurredAt TIMESTAMP QUERYABLE SORTABLE,
+    replyMac STRING,
+    replyUntil TIMESTAMP,
+    GRANT CREATE TO "_icloud",
+    GRANT READ, WRITE TO "_creator"
+);
+
+RECORD TYPE MoteReply (
+    "___recordID" REFERENCE,
+    body ENCRYPTED STRING,
+    eventID STRING,
+    macID STRING,
+    status STRING,
+    message STRING,
+    expiresAt TIMESTAMP,
     GRANT CREATE TO "_icloud",
     GRANT READ, WRITE TO "_creator"
 );

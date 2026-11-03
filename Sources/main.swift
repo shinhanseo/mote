@@ -333,7 +333,7 @@ struct LocalReader {
         if !test{MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")}
         if !test,["completed","approval","answer"].contains(job.status),snoozed[job.id]==nil,
             MobileNotifier.shouldSend(awayOnly:mobile.awayOnly,locked:screensAsleep,idleSeconds:CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)) {
-            Task{await mobile.send(thread:job.id,turn:job.turn,kind:job.status,title:job.title,privateMode:privacyMode)}
+            Task{await mobile.send(thread:job.id,turn:job.turn,kind:job.status,title:job.title,privateMode:privacyMode,requests:requests)}
         }
         let content=UNMutableNotificationContent()
         content.title=test ? L10n.text("모트 · 테스트 알림") : ["approval":L10n.text("모트 · 승인이 필요해요"),"answer":L10n.text("모트 · 답변을 기다리고 있어요"),"failed":L10n.text("모트 · 작업에 문제가 생겼어요")][job.status] ?? L10n.text("모트 · 작업이 끝났어요")
