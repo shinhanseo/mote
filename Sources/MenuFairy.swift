@@ -1,13 +1,20 @@
 import AppKit
+import QuartzCore
 
-/// Small template frames, cached per state; no display link or idle redraw loop.
+/// Cached template frames; the compositor animates a tiny layer, not the button.
 @MainActor final class MenuFairy {
     weak var button:NSStatusBarButton?
-    private var timer:Timer?
+    private final class IconView:NSView {
+        var appearanceChanged:(()->Void)?
+        override func hitTest(_ point:NSPoint)->NSView? {nil}
+        override func viewDidChangeEffectiveAppearance(){super.viewDidChangeEffectiveAppearance();appearanceChanged?()}
+        override func viewDidChangeBackingProperties(){super.viewDidChangeBackingProperties();appearanceChanged?()}
+    }
+    private var iconView:IconView?
     private var screensSleeping=false
     private var state="idle"
-    private var frame=0
     private var frames=[String:[NSImage]]()
+    private var tinted=[String:[CGImage]]()
     init(button:NSStatusBarButton?){self.button=button
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(accessibilityChanged),name:NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,object:nil)
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(sleeping),name:NSWorkspace.screensDidSleepNotification,object:nil)
@@ -16,21 +23,53 @@ import AppKit
     }
     func update(_ next:String){guard state != next || button?.image == nil else{return};state=next;restart()}
     @objc private func accessibilityChanged(){restart()}
-    @objc private func sleeping(){screensSleeping=true;timer?.invalidate();timer=nil}
+    @objc private func sleeping(){screensSleeping=true;iconView?.layer?.removeAllAnimations()}
     @objc private func waking(){screensSleeping=false;restart()}
     private func restart(){
-        timer?.invalidate();timer=nil;frame=0;updateAccessibility();draw()
-        guard !screensSleeping,state != "idle",!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else{return}
-        let timer=Timer(timeInterval:ProcessInfo.processInfo.isLowPowerModeEnabled ? 1.0:0.4,repeats:true){[weak self] _ in Task{@MainActor in guard let self else{return};self.frame=(self.frame+1)%4;self.draw()}}
-        timer.tolerance=0.08;RunLoop.main.add(timer,forMode:.common);self.timer=timer
+        guard let button else{return}
+        if iconView==nil {
+            let placeholder=NSImage(size:NSSize(width:28,height:22),flipped:false){_ in true}
+            placeholder.isTemplate=true;button.image=placeholder
+            let view=IconView(frame:.zero);view.wantsLayer=true
+            view.identifier=NSUserInterfaceItemIdentifier("mote-fairy-layer")
+            view.setAccessibilityElement(false);button.addSubview(view);iconView=view
+            view.appearanceChanged={[weak self] in self?.restart()}
+        }
+        guard let view=iconView,let layer=view.layer else{return}
+        let rect=(button.cell as? NSButtonCell)?.imageRect(forBounds:button.bounds) ?? NSRect(x:0,y:0,width:28,height:22)
+        if view.frame != rect {view.frame=rect}
+        if frames[state]==nil {frames[state]=(0..<4).map{Self.image(state:state,frame:$0)}}
+        let dark=button.effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua
+        let scale=button.window?.backingScaleFactor ?? 2
+        let key="\(state):\(dark):\(scale)"
+        if tinted[key]==nil {
+            tinted[key]=frames[state]!.compactMap{Self.tint($0,scale:scale,color:dark ? .white:.black)}
+        }
+        guard let images=tinted[key],images.count==4 else{return}
+        CATransaction.begin();CATransaction.setDisableActions(true)
+        layer.removeAnimation(forKey:"mote.frames");layer.contentsScale=scale
+        layer.contentsGravity = .resizeAspect;layer.contents=images[0]
+        if !screensSleeping,state != "idle",!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let animation=CAKeyframeAnimation(keyPath:"contents")
+            animation.values=images+[images[0]];animation.keyTimes=[0,0.25,0.5,0.75,1]
+            animation.calculationMode = .discrete
+            animation.duration=4*(ProcessInfo.processInfo.isLowPowerModeEnabled ? 1.0:0.4)
+            animation.repeatCount = .infinity
+            layer.add(animation,forKey:"mote.frames")
+        }
+        CATransaction.commit()
+        button.toolTip=["inProgress":L10n.text("모트 · 작업 중"),"approval":L10n.text("모트 · 승인 대기"),"answer":L10n.text("모트 · 답변 대기"),"unread":L10n.text("모트 · 미확인 답변이 있어요"),"failed":L10n.text("모트 · 오류 확인이 필요해요"),"idle":L10n.text("모트 · 쉬는 중")][state]
+        button.setAccessibilityLabel(button.toolTip ?? L10n.text("모트"))
     }
-    private func draw(){
-        if frames[state]==nil{frames[state]=(0..<4).map{Self.image(state:state,frame:$0)}}
-        button?.image=frames[state]?[frame]
-    }
-    private func updateAccessibility(){
-        button?.toolTip=["inProgress":L10n.text("모트 · 작업 중"),"approval":L10n.text("모트 · 승인 대기"),"answer":L10n.text("모트 · 답변 대기"),"unread":L10n.text("모트 · 미확인 답변이 있어요"),"failed":L10n.text("모트 · 오류 확인이 필요해요"),"idle":L10n.text("모트 · 쉬는 중")][state]
-        button?.setAccessibilityLabel(button?.toolTip ?? L10n.text("모트"))
+    private static func tint(_ image:NSImage,scale:CGFloat,color:NSColor)->CGImage? {
+        let size=image.size
+        guard let rep=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:Int(size.width*scale),pixelsHigh:Int(size.height*scale),bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0),let context=NSGraphicsContext(bitmapImageRep:rep) else{return nil}
+        NSGraphicsContext.saveGraphicsState();NSGraphicsContext.current=context
+        context.cgContext.scaleBy(x:scale,y:scale)
+        image.draw(in:NSRect(origin:.zero,size:size))
+        color.setFill();NSRect(origin:.zero,size:size).fill(using:.sourceIn)
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.cgImage
     }
     // Drawing-handler NSImages are lazy, so caching the object alone does not
     // cache drawing. Materialize 1x/2x bitmap frames once, retaining template tint.

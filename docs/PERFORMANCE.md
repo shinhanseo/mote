@@ -38,3 +38,16 @@ python3 Tools/measure-performance.py --pid PID --samples 16 --interval 2
 Use the same panel state, number of active agents, power mode and workload. Also compare panel open, all tasks idle, and Low Power Mode separately. macOS CPU percentages are per-core scale, not battery percentages. The tool reads CPU/footprint only, not conversations or credentials.
 
 Regression checks cover approval/question/resume, read receipts, grouped notifications, closing-panel content release, Retina template images, unchanged-job publisher suppression and usage cache append/truncate/replacement invalidation.
+
+## Second pass (2026-11-03)
+
+- Database/WAL filesystem events replace unconditional full record scans. Events are coalesced, full reads are rate-limited to no more than once per 3 seconds, and a 30-second safety read/re-arm remains. The 3-second timer continues lightweight reminder/away/reset housekeeping. Explicit refreshes still read immediately.
+- Watch only the selected state database and thread-history database plus their WALs and parent directory. Replacement, rotation and newly created WAL files re-arm watchers; obsolete schema databases are unwatched.
+- Menu animation is a small `CAKeyframeAnimation` over pre-tinted cached images. This removes the per-frame main-thread timer and avoids updating the whole native status button. Appearance/backing changes rebuild the appropriate cache; sleep, Reduce Motion and Low Power Mode behavior remain.
+- An NSImageView-only redraw experiment measured 2.75% CPU and was rejected. The compositor version measured 0.17% mean (30 intervals of 2 seconds) in an active real-session test with the panel closed.
+- Rebuilt 0.4.2 with only the background-start flag added for matching panel conditions: 1.75% mean CPU over 30 intervals. Compared with 0.17%, approximately 90% lower process CPU. Measurements are sequential; agent traffic and other system work vary. This is not a battery/watt or WindowServer attribution test.
+- `--background` starts without opening the panel; normal launches retain the existing behavior.
+
+Regression tests include file append, atomic replacement, WAL creation/write, continuous-write starvation prevention, schema rotation, irrelevant-file filtering, compositor pixel visibility and icon click-through.
+
+Idle verification: isolated empty local-record fixture, panel hidden, 60 intervals of 2 seconds: mean CPU 0.01%, max 0.2%, footprints 13M, 14M. The fixture has no live Codex IPC endpoint, so it verifies the idle/fallback path rather than an idle connected real account. This 2-minute check is not a multi-hour memory soak.

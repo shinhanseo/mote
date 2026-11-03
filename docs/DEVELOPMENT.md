@@ -57,7 +57,7 @@ Screen placement tests include left/negative-coordinate and vertically arranged 
 
 ## Signing and distribution
 
-Current public release: **0.4.1**. Default local builds are ad-hoc signed and are not notarized. Icon generation is reproducible with `Tools/GenerateIcon.swift` and `iconutil`.
+Current public release: see [GitHub Releases](https://github.com/shinhanseo/mote/releases/latest). Default local builds are ad-hoc signed and are not notarized. Icon generation is reproducible with `Tools/GenerateIcon.swift` and `iconutil`.
 
 For a Developer ID-signed, notarized archive, configure a **Developer ID Application** certificate/private key and an existing `notarytool` Keychain profile, then run:
 

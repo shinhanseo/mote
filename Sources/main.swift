@@ -222,6 +222,10 @@ struct LocalReader {
     let monitoringStarted=Date().timeIntervalSince1970
     var baseline=false; var previous=[String:Job](); var timer: Timer?; var reading=false
     var onUpdate: (() -> Void)?
+    let recordWatcher=RecordWatcher()
+    var recordsDirty=true
+    private var lastRecordRead=Date.distantPast
+    private var lastWatchScan=Date.distantPast
     var active: Int { jobs.filter{$0.status=="inProgress"}.count }
     var chosen: Job? { jobs.first{$0.id==selected} ?? jobs.first }
     func start() {
@@ -235,8 +239,9 @@ struct LocalReader {
         connectivity.start{[weak self] available in Task{@MainActor in self?.receiveNetwork(available)}}
         live.onDiagnostic = {[weak self] message in Task{@MainActor in guard let self else{return};self.liveIssue=message;if message != nil{self.liveStates.removeAll();self.reconcile();self.onUpdate?()}}}
         live.onState = {[weak self] id,state in Task { @MainActor in self?.receive(id,state) }}
-        live.onConnection = {[weak self] connected in Task { @MainActor in guard let self else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile();self.onUpdate?()}}}
-        live.start();refresh(); timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in Task { @MainActor in self?.refresh() }};timer?.tolerance=0.3; updatePermission() }
+        live.onConnection = {[weak self] connected in Task { @MainActor in guard let self,self.liveConnected != connected else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile();self.onUpdate?()}}}
+        recordWatcher.start{[weak self] in Task{@MainActor in self?.recordsDirty=true;self?.refresh(forceRead:false)}}
+        live.start();refresh(); timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in Task { @MainActor in self?.refresh(forceRead:false) }};timer?.tolerance=0.3; updatePermission() }
     func updatePermission() { UNUserNotificationCenter.current().getNotificationSettings { settings in Task { @MainActor in self.notificationStatus = settings.authorizationStatus == .authorized ? L10n.text("알림 켜짐") : L10n.text("알림 허용 필요") } } }
     func requestNotifications() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -307,14 +312,20 @@ struct LocalReader {
             }
         }
     }
-    func refresh() {
+    func refresh(forceRead:Bool=true) {
         updates.checkIfNeeded()
         if !demoMode,screensAsleep || CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)>300 {setAway(true)}
         checkSnoozes()
         checkUsageResets()
         checkWaitReminders()
         refreshUsage()
-        guard !reading else{return}; reading=true
+        if Date().timeIntervalSince(lastWatchScan)>30 {lastWatchScan=Date();recordWatcher.rescanEventually()}
+        // Keep housekeeping responsive without reopening every database every 3s.
+        guard forceRead || recordsDirty || Date().timeIntervalSince(lastRecordRead)>30 else{return}
+        // A token stream can write the WAL continuously. Never turn filesystem
+        // events into more full queries than the previous 3-second fallback.
+        guard forceRead || Date().timeIntervalSince(lastRecordRead)>=3 else{return}
+        guard !reading else{return}; reading=true;recordsDirty=false;lastRecordRead=Date()
         let currentIDs=Set(pinnedIDs)
         Task.detached { let result = Result { try LocalReader.read(currentIDs:currentIDs) }; await self.apply(result) }
     }
@@ -330,7 +341,7 @@ struct LocalReader {
             else{for job in chronological{followNewTurn(id:job.id,turn:job.turn,started:job.startedAt)}}
             live.observe(found.map(\.id));reconcile();if error != nil {error=nil};baseline=true
             if isAway,!screensAsleep,CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)<300 {setAway(false)}
-        case .failure(let e): error=e.localizedDescription }
+        case .failure(let e): recordsDirty=true;error=e.localizedDescription }
         onUpdate?()
     }
     func receive(_ id:String,_ state:LiveState) {
@@ -617,7 +628,7 @@ struct CompactPanel:View {
             guard let app=note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,app.processIdentifier != ProcessInfo.processInfo.processIdentifier else{return}
             Task{@MainActor in self?.panel.orderOut(nil)}
         }
-        if CommandLine.arguments.contains("--demo"){startDemo()}else{monitor.start()};toggle();fputs("Mote panel ready\n",stderr)
+        if CommandLine.arguments.contains("--demo"){startDemo()}else{monitor.start()};if !CommandLine.arguments.contains("--background"){toggle()};fputs("Mote panel ready\n",stderr)
     }
     func startDemo(){
         monitor.demoMode=true

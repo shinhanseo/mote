@@ -147,7 +147,27 @@ MainActor.assumeIsolated {
             expect(image.representations.count==2,"menu frame must be rasterized for 1x and 2x")
         }
     }
-    print("PASS: closed panel releases content; all menu states have cached Retina template representations")
+    let statusItem=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
+    let menu=MenuFairy(button:statusItem.button);menu.update("inProgress")
+    if let button=statusItem.button {
+        let reserved=button.image
+        let overlays=button.subviews.filter{$0.identifier?.rawValue=="mote-fairy-layer"}
+        expect(overlays.count==1 && overlays[0].layer?.contents != nil,"dedicated icon layer renders a frame")
+        expect(overlays[0].layer?.animation(forKey:"mote.frames") != nil || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,"compositor animates without a main-thread timer")
+        expect(!overlays[0].frame.isEmpty,"native status button reserves visible icon bounds")
+        if let contents=overlays[0].layer?.contents,CFGetTypeID(contents as CFTypeRef)==CGImage.typeID {
+            let cg=contents as! CGImage
+            let bitmap=NSBitmapImageRep(cgImage:cg)
+            var visible=false
+            for x in 0..<bitmap.pixelsWide {for y in 0..<bitmap.pixelsHigh {if (bitmap.colorAt(x:x,y:y)?.alphaComponent ?? 0)>0.1 {visible=true;break}}}
+            expect(visible,"compositor frame cannot be transparent")
+        }else{expect(false,"compositor contents must be an image")}
+        expect(overlays[0].hitTest(.zero)==nil,"icon view must pass clicks through to status button")
+        menu.update("answer")
+        expect(button.image === reserved,"state changes must not replace the native button image")
+    }
+    NSStatusBar.system.removeStatusItem(statusItem)
+    print("PASS: closed panel release, Retina templates, isolated icon rendering, click-through")
     var jobChanges=0
     let observation=m.$jobs.dropFirst().sink{_ in jobChanges += 1}
     m.reconcile();let unchangedCount=jobChanges;m.reconcile()

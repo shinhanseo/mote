@@ -9,6 +9,8 @@ jobs:
         run: ./build.sh
       - name: Test local reader
         run: python3 Tests/check_reader.py
+      - name: Test local database change events
+        run: Tests/check_record_watcher.sh
       - name: Test live state reducer
         run: Tests/check_live_state.sh
       - name: Test multi-display alert placement
