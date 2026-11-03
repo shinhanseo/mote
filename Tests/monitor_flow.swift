@@ -282,6 +282,14 @@ MainActor.assumeIsolated {
     expect(toasts.displayedIdentifier=="request-3","equal-priority alerts remain FIFO")
     toasts.hideAll();expect(toasts.displayedIdentifier==nil,"pause clears the visible toast and queue")
     print("PASS: toast priority, FIFO, exact cancellation and snooze callback reentrancy")
+
+    var abandoned=running;abandoned.id="old-unverified";abandoned.status="unknown";abandoned.startedAt=1
+    health.apply(.success([running,abandoned]));health.receive(running.id,working);health.pinnedIDs=[running.id]
+    expect(!health.needsDetectionCheck && health.fairyStatus=="inProgress","old unpinned unknown history cannot obscure confirmed current work")
+    health.pinnedIDs.append(abandoned.id)
+    expect(health.needsDetectionCheck && health.confirmedActive==1 && health.fairyStatus=="inProgress","partial uncertainty is disclosed without hiding confirmed activity")
+    expect(Panel(model:health).headline.contains(L10n.text("진행 중이에요.")),"confirmed current work keeps its truthful headline")
+    print("PASS: historical uncertainty is separated from confirmed current activity")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

@@ -17,6 +17,11 @@ enum L10n {
         return value
     }
     static let english:[String:String] = [
+        "일부 상태 확인 필요":"Some statuses need checking",
+        "일부 대화는 마지막 기록을 보여줘요. 현재 상태 확인이 필요해요.":"Some chats show their last known state and need checking.",
+        "감지 상태를 확인하는 요정":"Dust fairy checking monitoring",
+        "연결을 확인하는 요정":"Dust fairy checking the connection",
+
         "상태 확인 중":"Checking status",
         "모트 · {0}개 작업이 응답을 기다려요":"Mote · {0} tasks are waiting for your response",
         "실시간 연결 확인 중":"Checking live connection",

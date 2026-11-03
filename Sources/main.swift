@@ -243,7 +243,7 @@ struct LocalReader {
     var alertThreads=[String:Set<String>]()
     var alertReferences=[String:[NoticeReference]]()
     var lastSystemReconcile=Date.distantPast
-    var menuSummary:String {PresentationPolicy.summary(running:active,waiting:waiting,unread:unread,errors:jobs.filter{$0.status=="failed"}.count)}
+    var menuSummary:String {PresentationPolicy.summary(running:confirmedActive,waiting:waiting,unread:unread,errors:jobs.filter{$0.status=="failed"}.count)}
     func deferReply(_ job:Job){deferred[job.id]=job.turn;reconcile();onUpdate?()}
     func restoreReply(_ job:Job){deferred.removeValue(forKey:job.id);reconcile();onUpdate?()}
     func cleanCompleted(){
@@ -292,14 +292,19 @@ struct LocalReader {
     let live=LiveObserver();var rawJobs=[Job]();var liveStates=[String:LiveState]();var waitSignatures=[String:String]()
     var waiting:Int {jobs.filter{["approval","answer"].contains($0.status)}.count}
     var unread:Int {jobs.filter{$0.status=="unread"}.count}
-    var needsDetectionCheck:Bool {(!baseline && !demoMode) || error != nil || liveIssue != nil || !liveConnected || jobs.contains{$0.status=="unknown"} || rawJobs.contains{["inProgress","unknown"].contains($0.status) && liveStates[$0.id]==nil}}
-    var detectionLabel:String {error != nil ? L10n.text("기록 확인 필요"):networkAvailable==false ? L10n.text("네트워크 없음"):liveIssue != nil ? L10n.text("기록 감지"):liveConnected ? (needsDetectionCheck ? L10n.text("상태 확인 중"):L10n.text("연결됨")):L10n.text("실시간 연결 확인 중")}
+    var confirmedActive:Int {jobs.filter{$0.status=="inProgress" && (demoMode || (liveConnected && liveStates[$0.id] != nil))}.count}
+    var unverifiedCurrentJobs:[Job] {jobs.filter{job in
+        ["inProgress","unknown"].contains(job.status) && (pinnedIDs.contains(job.id) || job.startedAt>=monitoringStarted-21600) && (job.status=="unknown" || !liveConnected || liveStates[job.id]==nil)
+    }}
+    var needsDetectionCheck:Bool {(!baseline && !demoMode) || error != nil || liveIssue != nil || !liveConnected || !unverifiedCurrentJobs.isEmpty}
+    var detectionLabel:String {error != nil ? L10n.text("기록 확인 필요"):networkAvailable==false ? L10n.text("네트워크 없음"):liveIssue != nil ? L10n.text("기록 감지"):liveConnected ? (needsDetectionCheck ? L10n.text("일부 상태 확인 필요"):L10n.text("연결됨")):L10n.text("실시간 연결 확인 중")}
     var fairyStatus:String {
         if jobs.contains(where:{$0.status=="approval"}){return "approval"}
         if waiting>0{return "answer"}
         if jobs.contains(where:{$0.status=="failed"}){return "failed"}
         if unread>0{return "unread"}
         if networkAvailable==false{return "offline"}
+        if confirmedActive>0{return "inProgress"}
         if needsDetectionCheck{return "unknown"}
         return active>0 ? "inProgress":"idle"
     }
@@ -309,6 +314,7 @@ struct LocalReader {
         if jobs.contains(where:{$0.status=="failed"}){return L10n.text("오류 {0}",[String(jobs.filter{$0.status=="failed"}.count)])}
         if unread>0{return L10n.text("미확인 {0}",[String(unread)])}
         if networkAvailable==false{return L10n.text("연결 확인")}
+        if confirmedActive>0{return L10n.text("진행 {0}",[String(confirmedActive)])}
         if needsDetectionCheck{return L10n.text("감지 확인")}
         return active>0 ? L10n.text("진행 {0}",[String(active)]):""
     }
@@ -418,7 +424,6 @@ struct LocalReader {
         }
     }
     func clearResolvedAlerts(){
-        let resolved=Set(jobs.filter{["inProgress","interrupted","reviewedError","deferred"].contains($0.status) || ($0.status=="completed" && $0.readReceipt==false)}.map(\.id))
         completionQueue.removeAll{!NoticeReference(job:$0).isRelevant(in:jobs)}
         let identifiers=alertReferences.filter{!$0.value.contains(where:{$0.isRelevant(in:jobs)})}.map(\.key)
         for id in identifiers{alertReferences.removeValue(forKey:id);alertThreads.removeValue(forKey:id)}
@@ -426,8 +431,11 @@ struct LocalReader {
         if !identifiers.isEmpty{UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:identifiers);UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:identifiers)}
         if alertDisplay=="system",Date().timeIntervalSince(lastSystemReconcile)>10{
             lastSystemReconcile=Date()
-            let currentJobs=jobs
-            UNUserNotificationCenter.current().getDeliveredNotifications{notifications in
+            UNUserNotificationCenter.current().getDeliveredNotifications{[weak self] notifications in
+                Task{@MainActor in
+                guard let self else{return}
+                let currentJobs=self.jobs
+                let resolved=Set(currentJobs.filter{["inProgress","interrupted","reviewedError","deferred"].contains($0.status) || ($0.status=="completed" && $0.readReceipt==false)}.map(\.id))
                 let remove=notifications.filter{note in
                     if let refs=note.request.content.userInfo["moteReferences"] as? [[String:String]],!refs.isEmpty {
                         return !refs.contains{r in
@@ -440,6 +448,7 @@ struct LocalReader {
                     return PresentationPolicy.resolvedGroup(ids,by:resolved)
                 }.map{$0.request.identifier}
                 if !remove.isEmpty{UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:remove)}
+                }
             }
         }
     }
@@ -565,7 +574,7 @@ struct Dust: View {
         TimelineView(.periodic(from:.now,by:reduceMotion ? 3600:0.2)){context in
             let frame=reduceMotion ? 0:Int(context.date.timeIntervalSince1970*5)%4
             Image(nsImage:MenuFairy.portrait(state:status,frame:frame)).resizable().interpolation(.high).scaledToFit()
-        }.accessibilityLabel(["approval":L10n.text("승인을 기다리는 요정"),"answer":L10n.text("답변을 기다리는 요정"),"unread":L10n.text("새 답변을 배달하는 요정"),"failed":L10n.text("오류를 알리는 요정"),"inProgress":L10n.text("작업 중인 요정")][status] ?? L10n.text("쉬는 요정"))
+        }.accessibilityLabel(["approval":L10n.text("승인을 기다리는 요정"),"answer":L10n.text("답변을 기다리는 요정"),"unread":L10n.text("새 답변을 배달하는 요정"),"failed":L10n.text("오류를 알리는 요정"),"inProgress":L10n.text("작업 중인 요정"),"unknown":L10n.text("감지 상태를 확인하는 요정"),"offline":L10n.text("연결을 확인하는 요정")][status] ?? L10n.text("쉬는 요정"))
     }
 }
 struct Glass: NSViewRepresentable {
@@ -628,6 +637,7 @@ struct Panel:View {
         }
         if model.unread>0{return L10n.text("미확인 답변이\n{0}개 있어요.", [String(describing: model.unread)])}
         if model.jobs.contains(where:{$0.status=="failed"}){return L10n.text("확인이 필요한\n오류가 있어요.")}
+        if model.confirmedActive>0{return L10n.text("{0}개 작업이\n진행 중이에요.",[String(model.confirmedActive)])}
         if model.needsDetectionCheck{return L10n.text("작업 상태를 확인할 수 없어요.")}
         return model.active>0 ? L10n.text("{0}개 작업이\n진행 중이에요.", [String(describing: model.active)]):L10n.text("지금은 쉬고 있어요.")
     }
@@ -648,7 +658,7 @@ struct Panel:View {
                         HStack(spacing:5){row(current);if !["approval","answer"].contains(current.status){Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help(L10n.text("고정 해제 · 대화는 삭제하지 않아요"))}}
                     }}
                 }
-                HStack{Button(((model.needsDetectionCheck || model.networkAvailable==false) && model.attentionJobs.isEmpty) ? L10n.text("상태 확인 불가"):L10n.text("확인할 작업 {0}", [String(describing: model.attentionJobs.count)])){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button(L10n.text("감지한 대화 {0}", [String(describing: model.jobs.count)])){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
+                HStack{Button(((model.needsDetectionCheck || model.networkAvailable==false) && model.attentionJobs.isEmpty) ? (model.confirmedActive>0 ? L10n.text("일부 상태 확인 필요"):L10n.text("상태 확인 불가")):L10n.text("확인할 작업 {0}", [String(describing: model.attentionJobs.count)])){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button(L10n.text("감지한 대화 {0}", [String(describing: model.jobs.count)])){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
                 VStack(alignment:.leading,spacing:4){
                     if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id) && !["approval","answer","unread","failed"].contains($0.status)}){row($0)}}else{
                         if !model.otherRunning.isEmpty{Text(L10n.text("진행 중 {0}", [String(describing: model.active)])).font(.caption).foregroundStyle(.secondary).padding(.top,15);ForEach(model.otherRunning){row($0)}}
@@ -666,6 +676,7 @@ struct Panel:View {
                 }.padding(.top,8)
             }
             if model.undoPins != nil{HStack{Text(L10n.text("작업 목록을 정리했어요"));Spacer();Button(L10n.text("되돌리기")){model.undoCleanup()}}.font(.caption).foregroundStyle(.secondary)}
+            if model.liveConnected,!model.unverifiedCurrentJobs.isEmpty {Text(L10n.text("일부 대화는 마지막 기록을 보여줘요. 현재 상태 확인이 필요해요.")).font(.caption).foregroundStyle(.secondary)}
             if !model.liveConnected {
                 Text(L10n.text("실시간 연결 전에는 승인·입력 대기를 확인할 수 없어요.")).font(.caption).foregroundStyle(.secondary)
                 if let sync=model.lastSync{Text(L10n.text("마지막 기록 확인 {0}",[sync.moteFormatted(date:.omitted,time:.standard)])).font(.caption2).foregroundStyle(.secondary)}
