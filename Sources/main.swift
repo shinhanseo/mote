@@ -501,7 +501,7 @@ struct LocalReader {
         if state.waiting==nil,let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
             latest.id != prior.id || latest.status != prior.status || old?.waiting != nil,let raw=rawJobs.first(where:{$0.id==id}) {
             var finished=raw;finished.turn=latest.id;finished.status=latest.status;finished.readReceipt = raw.turn == latest.id ? raw.readReceipt:nil;notify(finished)
-            refresh()
+            if timer != nil{refresh()}
         }
         if liveStates[id]?.waiting != state.waiting {fputs("Mote waiting state: \(state.waiting ?? "none")\n",stderr)}
         liveStates[id]=state

@@ -249,7 +249,7 @@ MainActor.assumeIsolated {
     var answeredTurn=raceTurn;answeredTurn["items"]=[question,["type":"userMessage","content":[["type":"text","text":"fixture answer"]]]]
     expect(pendingQuestion.apply(["type":"snapshot","revision":2,"conversationState":["threadRuntimeStatus":["type":"idle"],"hasUnreadTurn":true,"turns":[answeredTurn]]]),"answered async prompt")
     race.receive(running.id,pendingQuestion);race.flushCompletions()
-    expect(race.waiting==0 && raceNotices.count==2,"completion arrives once after the question is resolved")
+    expect(race.waiting==0 && raceNotices.count==2,"completion after resolved question: notices=\(raceNotices.count), waiting=\(race.waiting), jobs=\(race.jobs.map{ $0.status }), queue=\(race.completionQueue.count), ledger=\(race.ledger.sent.keys.sorted())")
     race.receive(running.id,pendingQuestion);race.flushCompletions()
     expect(raceNotices.count==2,"repeated snapshots do not duplicate completion")
     let batch=Monitor();batch.ledger=NotificationLedger();batch.completionAlerts=true;batch.muted=false;batch.pauseUntil=nil
