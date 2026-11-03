@@ -42,7 +42,8 @@ do{try CodexReplyClient().deliver("fixture answer",route:route,id:"reply-fixture
   t=threading.Thread(target=fixture);t.start()
   r=subprocess.run([str(p/'test')],env={**os.environ,'CODEX_HOME':tmp,'FIXTURE_TOOL':'1' if mode in ['tool','multi'] else '0','EXPIRED':'1' if mode=='expired' else '0'},capture_output=True,text=True,timeout=20);t.join();server.close();(p/'ipc/ipc.sock').unlink()
   assert not failures,failures
-  if mode in ['stale','approval','multi','expired','disconnect']:assert not sent and 'rejected' in r.stdout,(mode,r.stdout)
+  if mode=='disconnect':assert len(sent)==1 and 'rejected' in r.stdout and '중복' in r.stdout
+  elif mode in ['stale','approval','multi','expired']:assert not sent and 'rejected' in r.stdout,(mode,r.stdout)
   else:
    assert 'delivered' in r.stdout,(mode,r.stdout)
    m=sent[0];assert m['targetClientId']=='fixture-owner'
