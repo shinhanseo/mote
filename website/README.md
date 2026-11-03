@@ -43,3 +43,5 @@ Exclude the current browser before measuring: open `https://shinhanseo.github.io
 Reports: GA4 Mote Website → Reports → acquisition (source/medium), engagement → events (`download_click`), or Realtime for initial validation. Campaign links may use public `utm_source`, `utm_medium`, `utm_campaign` tags. Do not put personal data in tags. Example: `https://shinhanseo.github.io/mote/?utm_source=syde&utm_medium=community&utm_campaign=launch`.
 
 Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.2/Mote-0.4.2.dmg
+
+Public notarized download: https://github.com/shinhanseo/mote/releases/download/v0.4.3/Mote-0.4.3.dmg
