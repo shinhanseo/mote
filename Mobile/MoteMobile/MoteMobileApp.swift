@@ -130,7 +130,7 @@ struct SettingsView:View {
             Button("알림 선택 적용"){Task{await store.connect()}}.padding(.top,18).padding(.bottom,30).disabled(store.busy)
             caption("개인정보")
             Toggle("앱에서 대화 제목 숨기기",isOn:$store.hideTitles).padding(.top,18)
-            Text("푸시 알림에는 대화 제목을 보내지 않아요. 이 설정은 iPhone 앱의 제목 표시만 바꿔요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(5).padding(.top,10).padding(.bottom,28)
+            Text("푸시 제목은 Mac Mote의 ‘대화 제목도 보내기’ 설정을 따라요. 이 스위치는 iPhone 앱 안에서만 제목을 숨겨요.").font(.system(size:12)).foregroundStyle(.secondary).lineSpacing(5).padding(.top,10).padding(.bottom,28)
             caption("알림 확인")
             HStack{Text("iPhone 알림");Spacer();Text(store.notificationStatus).foregroundStyle(.secondary)}.padding(.top,18)
             Button("iPhone에서 테스트 알림 받기"){Task{await store.testNotification()}}.padding(.top,20)

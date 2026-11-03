@@ -56,11 +56,12 @@ actor CloudRelay {
             guard kinds.contains(kind) else {do{_ = try await db.deleteSubscription(withID:id)}catch let e as CKError where e.code == .unknownItem{};continue}
             let subscription=CKQuerySubscription(recordType:"MoteEvent",predicate:NSPredicate(format:"kind == %@",kind),subscriptionID:id,options:.firesOnRecordCreation)
             let info=CKSubscription.NotificationInfo()
-            info.title="Mote"
+            info.titleLocalizationKey="%1$@"
+            info.titleLocalizationArgs=["title"]
             info.alertLocalizationKey=kind=="completed" ? "PUSH_COMPLETED":kind=="approval" ? "PUSH_APPROVAL":"PUSH_ANSWER"
             info.soundName="default"
             info.shouldSendContentAvailable=true
-            // No title, project path, thread ID or actionable Codex approval in the push.
+            // Only the explicitly shared title; never prompts, commands or thread IDs.
             subscription.notificationInfo=info
             _ = try await db.save(subscription)
         }
@@ -77,7 +78,7 @@ actor CloudRelay {
         // Repeated sends do not create duplicate notification records.
         do{_ = try await db.record(for:id);return}catch let e as CKError where e.code == .unknownItem{}
         let record=CKRecord(recordType:"MoteEvent",recordID:id)
-        record["kind"]=event.kind as CKRecordValue;record["title"]=event.title as CKRecordValue
+        record["kind"]=event.kind as CKRecordValue;record["title"]=(event.title.isEmpty ? "Mote":String(event.title.prefix(100))) as CKRecordValue
         record["macName"]=event.macName as CKRecordValue;record["occurredAt"]=event.createdAt as CKRecordValue
         _ = try await db.save(record)
     }

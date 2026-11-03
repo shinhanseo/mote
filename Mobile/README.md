@@ -86,3 +86,10 @@ On the owner Mac, removing and restoring the existing `dev.local.mote` → `iClo
 
 
 Production subscription error reproduction: the owner iPhone reported “attempting to create a subscription in a production container”. The exact three `CloudRelay.subscribe` query subscriptions were successfully created in Development using a signed Mac setup build, followed by a Production schema deployment (CloudKit Console confirmed Changes Deployed). This setup is necessary in addition to record type/index deployment. Owner iPhone retry/receipt verification remains separate from schema deployment.
+
+
+## Titled push and lifecycle verification work
+
+Mac title sharing now persists as an explicit setting. For the owner test run it was enabled at the owner's request; private mode still suppresses titles. Push titles use the existing record title field with CloudKit title localization arguments, falling back to Mote for withheld titles. Subscription notification-field changes were first saved in Development and deployed to Production, then successfully saved in Production. Previously blank titles cannot be recovered from old events.
+
+Owner test runner `--mobile-test-suite <label>` sends completion / approval / input-required fixtures 8 seconds apart. This is transport testing, not real Codex command approval. Receiver background and force-quit receipt must be confirmed by the owner independently. iOS build 3 updates the privacy explanation to distinguish Mac-controlled push title sharing from iPhone-local title hiding.
