@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory(prefix='mote-reply-',dir='/tmp') as tmp:
 let route=ReplyRoute(thread:"fixture",turn:"turn",requests:ProcessInfo.processInfo.environment["FIXTURE_TOOL"]=="1" ? ["question"]:["[\\\"request_user_input_async\\\",\\\"question\\\",0]"],expiresAt:Date().addingTimeInterval(ProcessInfo.processInfo.environment["EXPIRED"]=="1" ? -1:60))
 do{try CodexReplyClient().deliver("fixture answer",route:route,id:"reply-fixture");print("delivered")}catch{print("rejected",error.localizedDescription)}''')
  subprocess.run(['swiftc',*[str(root/x) for x in ['Sources/Localizations.swift','Sources/PresentationPolicy.swift','Sources/LiveObserver.swift','Sources/RemoteReply.swift']],str(p/'main.swift'),'-o',str(p/'test')],check=True)
- for mode in ['active','completed','tool','stale','approval','multi','expired','disconnect']:
+ for mode in ['active','completed','tool','stale','approval','multi','expired','disconnect','mixed']:
   server=socket.socket(socket.AF_UNIX);server.bind(str(p/'ipc/ipc.sock'));server.listen(1);sent=[];failures=[]
   def fixture():
    try:
@@ -30,7 +30,7 @@ do{try CodexReplyClient().deliver("fixture answer",route:route,id:"reply-fixture
     requests=[request] if mode in ['tool','multi'] else []
     if mode=='multi':request['params']['questions'].append({'id':'q2'})
     async_item={'id':'question','type':'agentMessage','questions':[{'title':'fixture'}]}
-    state={'turns':[{'turnId':'other' if mode=='stale' else 'turn','status':'completed' if mode=='completed' else 'inProgress','turnStartedAtMs':1,'items':[] if requests or mode=='approval' else [async_item]}], 'requests':requests,'threadRuntimeStatus':{'type':'active','activeFlags':['waitingOnApproval' if mode=='approval' else 'waitingOnUserInput']}}
+    state={'turns':[{'turnId':'other' if mode=='stale' else 'turn','status':'completed' if mode=='completed' else 'inProgress','turnStartedAtMs':1,'items':[] if requests or mode=='approval' else [async_item]}], 'requests':requests,'threadRuntimeStatus':{'type':'active','activeFlags':['waitingOnApproval' if mode in ['approval','mixed'] else 'waitingOnUserInput']}}
     send(dict(type='broadcast',method='thread-stream-state-changed',version=11,sourceClientId='fixture-owner',params={'hostId':'local','conversationId':'fixture','change':{'type':'snapshot','revision':1,'conversationState':state}}))
     try:
      mutation=recv();sent.append(mutation)
@@ -43,7 +43,7 @@ do{try CodexReplyClient().deliver("fixture answer",route:route,id:"reply-fixture
   r=subprocess.run([str(p/'test')],env={**os.environ,'CODEX_HOME':tmp,'FIXTURE_TOOL':'1' if mode in ['tool','multi'] else '0','EXPIRED':'1' if mode=='expired' else '0'},capture_output=True,text=True,timeout=20);t.join();server.close();(p/'ipc/ipc.sock').unlink()
   assert not failures,failures
   if mode=='disconnect':assert len(sent)==1 and 'rejected' in r.stdout and '중복' in r.stdout
-  elif mode in ['stale','approval','multi','expired']:assert not sent and 'rejected' in r.stdout,(mode,r.stdout)
+  elif mode in ['stale','approval','multi','expired','mixed']:assert not sent and 'rejected' in r.stdout,(mode,r.stdout)
   else:
    assert 'delivered' in r.stdout,(mode,r.stdout)
    m=sent[0];assert m['targetClientId']=='fixture-owner'

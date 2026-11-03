@@ -86,7 +86,7 @@ final class CodexReplyClient {
   };throw RemoteReplyError.unavailable
  }
  static func validate(_ route:ReplyRoute,state:LiveState,now:Date=Date()) throws {
-  guard route.expiresAt>now,state.latestTurn?.id==route.turn,state.waiting=="answer",Set(state.requestIDs+state.asyncQuestionIDs)==Set(route.requests),!route.requests.isEmpty else{throw RemoteReplyError.stale}
+  guard !(state.runtime["activeFlags"] as? [String] ?? []).contains("waitingOnApproval"),route.expiresAt>now,state.latestTurn?.id==route.turn,state.waiting=="answer",Set(state.requestIDs+state.asyncQuestionIDs)==Set(route.requests),!route.requests.isEmpty else{throw RemoteReplyError.stale}
  }
  func deliver(_ text:String,route:ReplyRoute,id:String) throws {
   guard !text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,text.count<=4000 else{throw RemoteReplyError.unsupported}

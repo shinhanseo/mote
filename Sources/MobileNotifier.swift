@@ -76,6 +76,7 @@ import CryptoKit
         guard !routes.isEmpty else{return}
         do {
             for record in try await relay.queuedReplies(events:Array(routes.keys)) {
+                guard enabled,remoteReplies else{return}
                 guard let reply=RelayReply.decode(record),reply.macID==installationID,let route=routes[reply.eventID] else{continue}
                 var attempted=Set((defaults.stringArray(forKey:"mobileReplyAttempts") ?? []).filter{$0.hasPrefix("reply-") && routes[String($0.dropFirst(6))] != nil})
                 guard reply.expiresAt>Date(),route.expiresAt>Date() else{try await relay.updateReply(record,status:"expired",message:"답변 시간이 지났어요.");continue}
@@ -83,6 +84,7 @@ import CryptoKit
                 // Persist before dispatch. A crash must never replay a user's answer.
                 attempted.insert(reply.id);defaults.set(Array(attempted),forKey:"mobileReplyAttempts")
                 try await relay.updateReply(record,status:"delivering")
+                guard enabled,remoteReplies else{try await relay.updateReply(record,status:"failed",message:"Mac에서 답변 전송을 껐어요.");return}
                 do {
                     try await Task.detached(priority:.utility){try CodexReplyClient().deliver(reply.body,route:route,id:reply.id)}.value
                     try await relay.updateReply(record,status:"delivered",message:"Codex가 답변을 받았어요.")
