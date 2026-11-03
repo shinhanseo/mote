@@ -17,6 +17,8 @@ enum L10n {
         return value
     }
     static let english:[String:String] = [
+        "Codex 기록을 읽지 못했어요":"Unable to read Codex records",
+        "대화 목록만 읽었어요. 작업 상태는 실시간 연결이 필요해요.":"Only the conversation list was read. Task status requires a live connection.",
         "Codex 기록이 사용 중이에요. 다시 시도하고 있어요.":"Codex records are busy. Retrying.",
         "이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.":"This Codex record structure is not supported yet. Check diagnostics in connection settings.",
         "Codex 대화 상태 기록이 없어요. Codex 앱에서 대화를 시작한 뒤 다시 확인해 주세요.":"Codex conversation status records are missing. Start a conversation in the Codex app and try again.",

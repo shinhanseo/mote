@@ -5,7 +5,7 @@ test_dir=$(mktemp -d)
 trap 'rm -rf "$test_dir"' EXIT
 python3 - "$test_dir/main.swift" <<'PY'
 import pathlib,sys
-source=pathlib.Path('Sources/main.swift').read_text().split('if CommandLine.arguments.contains("--diagnose")')[0]
+source=pathlib.Path('Sources/main.swift').read_text().split('if CommandLine.arguments.contains("--schema")')[0]
 pathlib.Path(sys.argv[1]).write_text(source+'\n'+pathlib.Path('Tests/monitor_flow.swift').read_text())
 PY
 mkdir -p "$test_dir/MoteTests.app/Contents/MacOS"

@@ -18,34 +18,53 @@ struct LocalReader {
         let text=L10n.text(message)+(detail.isEmpty ? "":" · "+detail)
         return NSError(domain:"Mote.LocalReader",code:code,userInfo:[NSLocalizedDescriptionKey:text])
     }
+    static func databaseFailure(_ db:OpaquePointer?,path:String,stage:String)->NSError {
+        let code=sqlite3_extended_errcode(db)
+        let message=String(cString:sqlite3_errmsg(db)).lowercased()
+        // Classify locally; never copy raw SQLite errors, which can contain schema text.
+        let kind:String
+        switch code & 255 {
+        case SQLITE_BUSY,SQLITE_LOCKED:kind="busy"
+        case SQLITE_CORRUPT:kind="corrupt"
+        case SQLITE_NOTADB:kind="not-a-database"
+        case SQLITE_AUTH,SQLITE_PERM,SQLITE_CANTOPEN,SQLITE_READONLY:kind="access"
+        case SQLITE_IOERR:kind="io"
+        default:kind=message.contains("no such table") ? "missing-table":message.contains("no such column") ? "missing-column":message.contains("no such function") ? "unsupported-function":message.contains("no such collation") ? "unsupported-collation":message.contains("malformed database schema") ? "invalid-schema":"sql-error"
+        }
+        return failure("Codex 기록을 읽지 못했어요",code:Int(code),detail:URL(fileURLWithPath:path).lastPathComponent+" [SQLite \(code), \(stage), \(kind)]")
+    }
     static func query(_ path: String, _ sql: String) throws -> [[String]] {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { if let db { sqlite3_close(db) }; throw failure("Codex 기록을 열 수 없어요",code:1,detail:URL(fileURLWithPath:path).lastPathComponent) }
-        defer { sqlite3_close(db) }; sqlite3_busy_timeout(db, 1000)
+        let opened=sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
+        defer {if let db {sqlite3_close(db)}}
+        guard opened==SQLITE_OK else {throw databaseFailure(db,path:path,stage:"open")}
+        sqlite3_busy_timeout(db, 1000)
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { let result=sqlite3_errcode(db)
-            if result==SQLITE_BUSY || result==SQLITE_LOCKED {throw failure("Codex 기록이 사용 중이에요. 다시 시도하고 있어요.",code:5)}
-            throw failure("이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.",code:2,detail:URL(fileURLWithPath:path).lastPathComponent) }
-        defer { sqlite3_finalize(stmt) }; var rows = [[String]]()
-        while true { let step = sqlite3_step(stmt); if step == SQLITE_DONE { break }; guard step == SQLITE_ROW else { throw failure("Codex 기록 읽기 실패",code:3) }
-            rows.append((0..<sqlite3_column_count(stmt)).map { i in sqlite3_column_text(stmt,i).map { String(cString:$0) } ?? "" })
-        }; return rows
+        defer {if let stmt {sqlite3_finalize(stmt)}}
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil)==SQLITE_OK else {throw databaseFailure(db,path:path,stage:"prepare")}
+        var rows = [[String]]()
+        while true {let step=sqlite3_step(stmt);if step==SQLITE_DONE{break};guard step==SQLITE_ROW else{throw databaseFailure(db,path:path,stage:"step")}
+            rows.append((0..<sqlite3_column_count(stmt)).map {i in sqlite3_column_text(stmt,i).map{String(cString:$0)} ?? ""})
+        };return rows
     }
     // Schema only: never includes titles, prompts, IDs, row data or home paths.
     static func diagnosticSummary()->String {
         let home=ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory()+"/.codex"
         let files=(try? FileManager.default.contentsOfDirectory(atPath:home)) ?? []
-        var lines=["Mote \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")", "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"]
+        var lines=["SQLite \(String(cString:sqlite3_libversion()))", "Mote \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")", "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"]
         for prefix in ["state_","thread_history_"] {
             guard let name=files.filter({$0.hasPrefix(prefix) && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else {lines.append(prefix+"*: missing");continue}
             for table in (prefix=="state_" ? ["threads","thread_read_receipts"]:["thread_turns"]) {
                 do {let columns=try query(home+"/"+name,"PRAGMA table_info(\(table))").map{$0[1]};lines.append(name+" / "+table+": "+columns.joined(separator:","))}
-                catch {lines.append(name+" / "+table+": unreadable")}
+                catch {lines.append(name+" / "+table+": "+error.localizedDescription)}
             }
         }
+        if let result=try? snapshot(),let warning=result.warning {lines.append("History read: "+warning)}
         return lines.joined(separator:"\n")
     }
-    static func read(currentIDs:Set<String>=[]) throws -> [Job] {
+    struct Snapshot {var jobs:[Job];var warning:String?}
+    static func read(currentIDs:Set<String>=[]) throws -> [Job] {try snapshot(currentIDs:currentIDs).jobs}
+    static func snapshot(currentIDs:Set<String>=[]) throws -> Snapshot {
         let home = ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory()+"/.codex"
         let files = try FileManager.default.contentsOfDirectory(atPath:home)
         guard let state = files.filter({$0.hasPrefix("state_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else { throw failure("Codex 기록을 찾지 못했어요",code:4) }
@@ -59,6 +78,8 @@ struct LocalReader {
         let condition=filters.isEmpty ? "":" WHERE "+filters.joined(separator:" AND ")
         let order=columns.contains("updated_at") ? "updated_at DESC, id":"id"
         let threads = try query(home+"/"+state,"SELECT id, \(titleColumn), \(cwd) FROM threads\(condition) ORDER BY \(order)")
+        var turns=[[String]]();var warning:String?
+        do {
         guard let history=files.filter({$0.hasPrefix("thread_history_") && $0.hasSuffix(".sqlite")}).sorted(by:{$0.localizedStandardCompare($1) == .orderedDescending}).first else {
             throw failure("Codex 대화 상태 기록이 없어요. Codex 앱에서 대화를 시작한 뒤 다시 확인해 주세요.",code:6)
         }
@@ -69,13 +90,14 @@ struct LocalReader {
             throw failure("이 Codex 기록 구조는 아직 지원하지 않아요. 연결 상태에서 진단 정보를 확인해 주세요.",code:2,detail:history+": thread_turns")
         }
         let started=turnColumns.contains("started_at") ? "COALESCE(t.started_at,0)":"0"
-        let turns = try query(historyPath, "SELECT t.thread_id,t.turn_id,t.status,\(started) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
+        turns = try query(historyPath, "SELECT t.thread_id,t.turn_id,t.status,\(started) FROM thread_turns t JOIN (SELECT thread_id,MAX(rollout_ordinal) n FROM thread_turns GROUP BY thread_id) latest ON t.thread_id=latest.thread_id AND t.rollout_ordinal=latest.n")
+        }catch {warning=L10n.text("대화 목록만 읽었어요. 작업 상태는 실시간 연결이 필요해요.")+" "+error.localizedDescription}
         // Desktop read receipts are authoritative for the published turn. Stream snapshots
         // can retain hasUnreadTurn after the desktop handles a separate read-state event.
         let receiptRows=(try? query(home+"/"+state,"SELECT thread_id, first_unread_turn IS NOT NULL, COALESCE(last_published_turn,'') FROM thread_read_receipts")) ?? []
         let receipts=Dictionary(receiptRows.map{($0[0],$0)},uniquingKeysWith:{_,b in b})
         let lookup = Dictionary(turns.map { ($0[0],$0) }, uniquingKeysWith: { a,b in b })
-        return threads.enumerated().compactMap { index,row in
+        let jobs:[Job] = threads.enumerated().compactMap { index,row in
             let t = lookup[row[0]]; var status = t?[2] ?? "unknown"
             // In-progress rows can survive a terminated Codex process. Never invent completion.
             if status == "inProgress", let stamp = Double(t?[3] ?? "0") {
@@ -86,6 +108,7 @@ struct LocalReader {
             guard index<20 || t?[2]=="inProgress" || receipt==true || currentIDs.contains(row[0]) else{return nil}
             return Job(id:row[0],title:row[1].isEmpty ? L10n.text("제목 없는 대화") : row[1],project:URL(fileURLWithPath:row[2]).lastPathComponent,status:status,turn:t?[1] ?? "",readReceipt:receipt,startedAt:{let v=Double(t?[3] ?? "0") ?? 0;return v>10_000_000_000 ? v/1000:v}())
         }
+        return Snapshot(jobs:jobs,warning:warning)
     }
 }
 
@@ -364,9 +387,12 @@ struct LocalReader {
         guard forceRead || Date().timeIntervalSince(lastRecordRead)>=3 else{return}
         guard !reading else{return}; reading=true;recordsDirty=false;lastRecordRead=Date()
         let currentIDs=Set(pinnedIDs)
-        Task.detached { let result = Result { try LocalReader.read(currentIDs:currentIDs) }; await self.apply(result) }
+        Task.detached {
+            do {let snapshot=try LocalReader.snapshot(currentIDs:currentIDs);await self.apply(.success(snapshot.jobs),warning:snapshot.warning)}
+            catch {await self.apply(.failure(error))}
+        }
     }
-    func apply(_ result:Result<[Job],Error>) {
+    func apply(_ result:Result<[Job],Error>,warning:String?=nil) {
         reading=false
         switch result {case .success(let found):
             if baseline {for j in found where previous[j.id]?.turn != j.turn && j.startedAt>=monitoringStarted-3 {makeCurrent(j.id)}}
@@ -376,7 +402,7 @@ struct LocalReader {
             let chronological=found.sorted{a,b in a.startedAt==b.startedAt ? a.turn<b.turn:a.startedAt<b.startedAt}
             if currentPolicy.started==0 {if let newest=chronological.last{followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}}
             else{for job in chronological{followNewTurn(id:job.id,turn:job.turn,started:job.startedAt)}}
-            live.observe(found.map(\.id));reconcile();if error != nil {error=nil};baseline=true
+            live.observe(found.map(\.id));reconcile();if error != warning {error=warning};baseline=true
             if isAway,!screensAsleep,CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)<300 {setAway(false)}
         case .failure(let e): recordsDirty=true;error=e.localizedDescription }
         onUpdate?()
@@ -517,7 +543,6 @@ struct UpdateNotice:View {
 struct Panel:View {
     @ObservedObject var model:Monitor
     var headline:String {
-        if model.error != nil{return L10n.text("작업 상태를 확인할 수 없어요.")}
         if model.networkAvailable==false{return L10n.text("네트워크 연결을\n확인해 주세요.")}
         if model.waiting>0 {
             let approvals=model.jobs.filter{$0.status=="approval"}.count
@@ -526,6 +551,7 @@ struct Panel:View {
         }
         if model.unread>0{return L10n.text("미확인 답변이\n{0}개 있어요.", [String(describing: model.unread)])}
         if model.jobs.contains(where:{$0.status=="failed"}){return L10n.text("확인이 필요한\n오류가 있어요.")}
+        if model.error != nil && model.active==0{return L10n.text("작업 상태를 확인할 수 없어요.")}
         return model.active>0 ? L10n.text("{0}개 작업이\n진행 중이에요.", [String(describing: model.active)]):L10n.text("지금은 쉬고 있어요.")
     }
     var body:some View {
@@ -712,7 +738,7 @@ struct CompactPanel:View {
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification,withCompletionHandler completion:@escaping(UNNotificationPresentationOptions)->Void){completion([.banner,.sound])}
     nonisolated func userNotificationCenter(_ center:UNUserNotificationCenter,didReceive response:UNNotificationResponse,withCompletionHandler completion:@escaping()->Void){let id=response.notification.request.content.userInfo["threadID"] as? String;Task{@MainActor in if response.actionIdentifier=="MOTE_SNOOZE"{let ids=Set(response.notification.request.content.userInfo["threadIDs"] as? [String] ?? id.map{[$0]} ?? []);self.monitor.snooze(ids)}else if id=="batch"{self.monitor.onOpenInbox?()}else if let id,id != "test"{self.monitor.open(id)}};completion()}
 }
-if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {if CommandLine.arguments.contains("--titles"){print(job.title)};print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let lockURL=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Mote")
+if CommandLine.arguments.contains("--schema") {print(LocalReader.diagnosticSummary())}else if CommandLine.arguments.contains("--diagnose") {do {let jobs=try LocalReader.read();for job in jobs {if CommandLine.arguments.contains("--titles"){print(job.title)};print("\(job.id) \(job.status) unread=\(job.readReceipt.map{String($0)} ?? "unknown")")};print("Detected \(jobs.count) local tasks")}catch{fputs("\(error)\n",stderr);exit(1)}}else{MainActor.assumeIsolated {let lockURL=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Mote")
 try? FileManager.default.createDirectory(at:lockURL,withIntermediateDirectories:true)
 let instanceFD=Darwin.open(lockURL.appendingPathComponent("instance.lock").path,O_CREAT|O_RDWR,0o600)
 guard instanceFD>=0,flock(instanceFD,LOCK_EX|LOCK_NB)==0 else{exit(0)}
