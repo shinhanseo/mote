@@ -13,6 +13,7 @@ import QuartzCore
     private var iconView:IconView?
     private var screensSleeping=false
     private var state="idle"
+    private var detail:String?
     private var frames=[String:[NSImage]]()
     private var tinted=[String:[CGImage]]()
     init(button:NSStatusBarButton?){self.button=button
@@ -21,7 +22,15 @@ import QuartzCore
         NSWorkspace.shared.notificationCenter.addObserver(self,selector:#selector(waking),name:NSWorkspace.screensDidWakeNotification,object:nil)
         NotificationCenter.default.addObserver(self,selector:#selector(accessibilityChanged),name:.NSProcessInfoPowerStateDidChange,object:nil)
     }
-    func update(_ next:String){guard state != next || button?.image == nil else{return};state=next;restart()}
+    func update(_ next:String,detail:String?=nil){
+        let changed=self.detail != detail;self.detail=detail
+        if state != next || button?.image == nil{state=next;restart()}else if changed{updateAccessibility()}
+    }
+    private func updateAccessibility(){
+        let label=["inProgress":L10n.text("모트 · 작업 중"),"approval":L10n.text("모트 · 승인 대기"),"answer":L10n.text("모트 · 답변 대기"),"unread":L10n.text("모트 · 미확인 답변이 있어요"),"failed":L10n.text("모트 · 오류 확인이 필요해요"),"idle":L10n.text("모트 · 쉬는 중"),"unknown":L10n.text("모트 · 감지 상태 확인 필요"),"offline":L10n.text("모트 · 네트워크 연결 없음")][state] ?? L10n.text("모트")
+        let text=[label,detail].compactMap{$0}.joined(separator:"\n")
+        button?.toolTip=text;button?.setAccessibilityLabel(text)
+    }
     @objc private func accessibilityChanged(){restart()}
     @objc private func sleeping(){screensSleeping=true;iconView?.layer?.removeAllAnimations()}
     @objc private func waking(){screensSleeping=false;restart()}
@@ -49,7 +58,7 @@ import QuartzCore
         CATransaction.begin();CATransaction.setDisableActions(true)
         layer.removeAnimation(forKey:"mote.frames");layer.contentsScale=scale
         layer.contentsGravity = .resizeAspect;layer.contents=images[0]
-        if !screensSleeping,state != "idle",!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if !screensSleeping,["inProgress","approval","answer","unread","failed"].contains(state),!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             let animation=CAKeyframeAnimation(keyPath:"contents")
             animation.values=images+[images[0]];animation.keyTimes=[0,0.25,0.5,0.75,1]
             animation.calculationMode = .discrete
@@ -58,8 +67,7 @@ import QuartzCore
             layer.add(animation,forKey:"mote.frames")
         }
         CATransaction.commit()
-        button.toolTip=["inProgress":L10n.text("모트 · 작업 중"),"approval":L10n.text("모트 · 승인 대기"),"answer":L10n.text("모트 · 답변 대기"),"unread":L10n.text("모트 · 미확인 답변이 있어요"),"failed":L10n.text("모트 · 오류 확인이 필요해요"),"idle":L10n.text("모트 · 쉬는 중")][state]
-        button.setAccessibilityLabel(button.toolTip ?? L10n.text("모트"))
+        updateAccessibility()
     }
     private static func tint(_ image:NSImage,scale:CGFloat,color:NSColor)->CGImage? {
         let size=image.size
@@ -93,7 +101,7 @@ import QuartzCore
         return NSImage(size:NSSize(width:200,height:160),flipped:false){_ in
             let bob:CGFloat=state=="inProgress" ? [0,2,0,-2][frame]:0
             asset.draw(in:NSRect(x:0,y:bob,width:200,height:160))
-            if let label=["approval":"!","answer":"?","unread":"✉","failed":"!"][state] {
+            if let label=["approval":"!","answer":"?","unread":"✉","failed":"!","unknown":"?","offline":"?"][state] {
                 (label as NSString).draw(at:NSPoint(x:163,y:74+CGFloat(frame%2)*3),withAttributes:[.font:NSFont.systemFont(ofSize:30,weight:.bold),.foregroundColor:NSColor.labelColor])
             }
             return true
@@ -117,6 +125,8 @@ import QuartzCore
                 stroke(NSPoint(x:6,y:9+bob),NSPoint(x:3,y:5+tap))
                 stroke(NSPoint(x:20,y:9+bob),NSPoint(x:24,y:6-tap))
                 NSBezierPath(roundedRect:NSRect(x:3,y:2,width:22,height:1.4),xRadius:0.7,yRadius:0.7).fill()
+            }else if ["unknown","offline"].contains(state){
+                (state=="offline" ? "!":"?" as NSString).draw(at:NSPoint(x:22,y:5),withAttributes:[.font:NSFont.systemFont(ofSize:12,weight:.bold),.foregroundColor:NSColor.black])
             }else if state=="failed"{
                 NSBezierPath(rect:NSRect(x:24,y:10,width:2,height:7)).fill()
                 NSBezierPath(ovalIn:NSRect(x:24,y:6,width:2,height:2)).fill()

@@ -17,6 +17,18 @@ enum L10n {
         return value
     }
     static let english:[String:String] = [
+        "상태 확인 중":"Checking status",
+        "모트 · {0}개 작업이 응답을 기다려요":"Mote · {0} tasks are waiting for your response",
+        "실시간 연결 확인 중":"Checking live connection",
+        "모트 · 감지 상태 확인 필요":"Mote · Check monitoring",
+        "미확인 {0}":"Unread {0}",
+        "연결 확인":"Check connection",
+        "감지 확인":"Check monitoring",
+        "클릭하면 확인할 작업을 볼 수 있어요":"Click to see tasks needing attention",
+        "실시간 연결 전에는 승인·입력 대기를 확인할 수 없어요.":"Approval and input waits cannot be verified until the live connection returns.",
+        "마지막 기록 확인 {0}":"Records last checked at {0}",
+        "마지막 기록 · 작업 중":"Last known state · Running",
+
         "Codex 기록을 읽지 못했어요":"Unable to read Codex records",
         "대화 목록만 읽었어요. 작업 상태는 실시간 연결이 필요해요.":"Only the conversation list was read. Task status requires a live connection.",
         "Codex 기록이 사용 중이에요. 다시 시도하고 있어요.":"Codex records are busy. Retrying.",

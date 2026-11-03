@@ -65,7 +65,7 @@ MainActor.assumeIsolated {
     var opened:URL?;r.openURL={opened=$0;return true};r.open(oldRead.id)
     expect(opened?.host=="threads" && opened?.path=="/chat-a" && URLComponents(url:opened!,resolvingAgainstBaseURL:false)?.queryItems?.first?.value=="local","exact local conversation route")
     expect(Monitor.conversationURL("chat-a?hostId=remote")==nil,"reject route injection")
-    r.openURL={_ in false};r.open(oldRead.id);expect(r.error != nil,"failed open is visible")
+    r.openURL={_ in false};r.open(oldRead.id);expect(r.settingsError != nil,"failed open is visible")
     r.completionTask?.cancel()
     let q=Monitor();q.ledger=NotificationLedger();q.onNotice={_,_,_ in};q.attentionAlerts=true;q.muted=false;q.pauseUntil=nil
     q.apply(.success([running]))
@@ -146,7 +146,7 @@ MainActor.assumeIsolated {
     let hiddenPanel=MotePanel(contentRect:NSRect(x:0,y:0,width:100,height:100),styleMask:.borderless,backing:.buffered,defer:true)
     hiddenPanel.contentView=NSView();hiddenPanel.orderOut(nil)
     expect(hiddenPanel.contentView==nil,"closing the panel releases its rendering tree")
-    for kind in ["idle","inProgress","approval","answer","unread","failed"] {
+    for kind in ["idle","inProgress","approval","answer","unread","failed","unknown","offline"] {
         for frame in 0..<4 {
             let image=MenuFairy.image(state:kind,frame:frame)
             expect(image.isTemplate && image.size==NSSize(width:28,height:22),"menu frames retain native template size")
@@ -209,6 +209,79 @@ MainActor.assumeIsolated {
     m.apply(.success([]))
     expect(m.error==nil,"a successful retry clears the reader error")
     print("PASS: record failure shows unknown status and recovery clears error")
+
+    // Uncertain monitoring must never be presented as sleeping or confirmed running.
+    let health=Monitor();health.onNotice={_,_,_ in};health.apply(.success([running]))
+    expect(health.fairyStatus=="unknown" && health.needsDetectionCheck,"no live link cannot look asleep or confidently running")
+    health.receiveConnection(true)
+    expect(health.needsDetectionCheck,"socket handshake alone is not a per-chat snapshot")
+    var working=LiveState();working.runtime=["type":"active","activeFlags":[]]
+    working.turns=["t":LiveState.Turn(id:running.turn,status:"inProgress",started:running.startedAt*1000)]
+    health.receive(running.id,working)
+    expect(!health.needsDetectionCheck && health.fairyStatus=="inProgress","live snapshot restores trustworthy running")
+    health.receiveConnection(false)
+    expect(health.fairyStatus=="unknown" && health.liveStates.isEmpty,"disconnect drops stale live evidence")
+    health.networkAvailable=false;expect(health.fairyStatus=="offline","offline is distinct from sleeping")
+    health.networkAvailable=true;health.receiveConnection(true);health.receive(running.id,working)
+    expect(health.fairyStatus=="inProgress","reconnect recovers without restarting")
+    var requestFixture=running;requestFixture.status="answer";requestFixture.attentionKey="request-1"
+    var nextRequest=requestFixture;nextRequest.attentionKey="request-2"
+    expect(!NoticeReference(job:requestFixture).isRelevant(in:[nextRequest]),"old request toast cannot survive a new same-kind question")
+    expect(SnoozedNotice(jobs:[requestFixture],due:Date()).unresolved(in:[nextRequest]).isEmpty,"snooze cannot silence a new same-kind question")
+    var finishedJob=running;finishedJob.status="completed";finishedJob.readReceipt=true
+    expect(!NoticeReference(job:requestFixture).isRelevant(in:[finishedJob]),"completed work clears its old question alert")
+    expect(NoticeReference(job:finishedJob).isRelevant(in:[finishedJob]),"unread completion remains relevant")
+    finishedJob.readReceipt=false
+    expect(!NoticeReference(job:finishedJob).isRelevant(in:[finishedJob]),"read completion no longer needs an alert")
+    print("PASS: monitoring uncertainty, reconnect recovery and per-request notice/snooze identity")
+
+    // A persisted completion can race a still-open async question.
+    let race=Monitor();race.completionAlerts=true;race.attentionAlerts=true;race.muted=false;race.pauseUntil=nil;race.ledger=NotificationLedger()
+    var raceNotices=[String]();race.onNotice={_,title,_ in raceNotices.append(title)}
+    race.receiveConnection(true);race.apply(.success([running]))
+    var pendingQuestion=LiveState()
+    let raceTurn:[String:Any] = ["turnId":running.turn,"status":"completed","turnStartedAtMs":running.startedAt*1000,"items":[question]]
+    expect(pendingQuestion.apply(["type":"snapshot","revision":1,"conversationState":["threadRuntimeStatus":["type":"idle"],"hasUnreadTurn":true,"turns":[raceTurn]]]),"completed turn with open async question")
+    race.receive(running.id,pendingQuestion)
+    var raceDone=running;raceDone.status="completed";raceDone.readReceipt=true
+    race.apply(.success([raceDone]));race.flushCompletions()
+    expect(race.waiting==1 && raceNotices.count==1,"pending async question suppresses premature completion")
+    var answeredTurn=raceTurn;answeredTurn["items"]=[question,["type":"userMessage","content":[["type":"text","text":"fixture answer"]]]]
+    expect(pendingQuestion.apply(["type":"snapshot","revision":2,"conversationState":["threadRuntimeStatus":["type":"idle"],"hasUnreadTurn":true,"turns":[answeredTurn]]]),"answered async prompt")
+    race.receive(running.id,pendingQuestion);race.flushCompletions()
+    expect(race.waiting==0 && raceNotices.count==2,"completion arrives once after the question is resolved")
+    race.receive(running.id,pendingQuestion);race.flushCompletions()
+    expect(raceNotices.count==2,"repeated snapshots do not duplicate completion")
+    let batch=Monitor();batch.ledger=NotificationLedger();batch.completionAlerts=true;batch.muted=false;batch.pauseUntil=nil
+    var batchCount=0;batch.onNotice={_,_,_ in batchCount += 1};batch.apply(.success([raceDone]))
+    batch.notify(raceDone)
+    let completionKey=NotificationLedger.key(thread:raceDone.id,turn:raceDone.turn,kind:"completed")
+    expect(batch.ledger.sent[completionKey]==nil,"queued completion has not consumed its delivery key")
+    var readBeforeFlush=raceDone;readBeforeFlush.readReceipt=false;batch.apply(.success([readBeforeFlush]));batch.flushCompletions()
+    expect(batchCount==0 && batch.ledger.sent[completionKey]==nil,"read-before-batch suppresses toast without poisoning dedup")
+    race.completionTask?.cancel();batch.completionTask?.cancel()
+    print("PASS: question/completion races, delayed completion dedup and read-before-batch suppression")
+    let compact=Monitor();compact.jobs=[requestFixture,nextRequest,Job(id:"approve",title:"fixture",project:"fixture",status:"approval",turn:"a")]
+    expect(compact.fairyStatus=="approval" && compact.compactMenuTitle==L10n.text("대기 {0}",["3"]),"mixed waits retain approval icon and one compact total")
+    compact.jobs=[];compact.liveConnected=true;compact.baseline=true
+    expect(compact.compactMenuTitle.isEmpty && compact.fairyStatus=="idle","healthy idle occupies only its icon")
+    print("PASS: compact menu priority and silent healthy idle")
+
+    let toasts=DisplayAlerts(presentsWindows:false)
+    toasts.show(title:"fixture",body:"fixture",mode:"cursor",sound:false,threads:["done"],identifier:"completion",priority:0,open:{})
+    toasts.show(title:"fixture",body:"fixture",mode:"cursor",sound:false,threads:["q1"],identifier:"request-1",priority:1,open:{})
+    expect(toasts.displayedIdentifier=="request-1","waiting request preempts a completion toast")
+    toasts.show(title:"fixture",body:"fixture",mode:"cursor",sound:false,threads:["q2"],identifier:"request-2",priority:1,open:{})
+    toasts.show(title:"fixture",body:"fixture",mode:"cursor",sound:false,threads:["q3"],identifier:"request-3",priority:1,open:{})
+    toasts.onSnooze={ids in toasts.cancel(threads:ids)}
+    toasts.snoozeCurrent()
+    expect(toasts.displayedIdentifier=="request-2","snooze callback cannot double-advance and skip the next alert")
+    toasts.cancel(identifiers:["request-1"])
+    expect(toasts.displayedIdentifier=="request-2","old request identifier cannot clear the new toast")
+    toasts.cancel(identifiers:["request-2"])
+    expect(toasts.displayedIdentifier=="request-3","equal-priority alerts remain FIFO")
+    toasts.hideAll();expect(toasts.displayedIdentifier==nil,"pause clears the visible toast and queue")
+    print("PASS: toast priority, FIFO, exact cancellation and snooze callback reentrancy")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }

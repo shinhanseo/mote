@@ -77,3 +77,15 @@ check(sameTurn.asyncQuestionIDs.count==1 && !sameTurn.asyncQuestionIDs.joined().
 check(sameTurn.apply(["type":"patches","baseRevision":1,"revision":2,"patches":[["op":"add","path":["turnHistory","history","entitiesByKey","turn:same","items",3],"value":["type":"steeringUserMessage","status":"accepted","content":[["type":"text","text":"확인했어"]]]]]]),"same turn later continuation")
 check(sameTurn.waiting==nil,"normal steering reply clears remaining old prompt")
 print("PASS: same-turn accepted user continuations clear prior async prompts and retain new questions")
+
+var revisionGuard=LiveState()
+check(revisionGuard.apply(["type":"snapshot","revision":4,"conversationState":["threadRuntimeStatus":["type":"idle"]]]),"fresh snapshot")
+check(!revisionGuard.apply(["type":"snapshot","revision":3,"conversationState":["threadRuntimeStatus":["type":"active","activeFlags":["waitingOnApproval"]]]]),"old snapshot rejected")
+check(revisionGuard.waiting==nil,"old snapshot cannot resurrect waiting")
+print("PASS: reordered snapshots cannot resurrect old waits")
+
+var mixedPriority=LiveState();mixedPriority.runtime=["type":"active","activeFlags":["waitingOnApproval"]]
+mixedPriority.turns=["t":LiveState.Turn(id:"t",status:"inProgress",started:1)]
+mixedPriority.questionItems=["t/0":["id":"q","count":1]]
+check(mixedPriority.waiting=="approval","approval takes priority over a concurrent async question")
+print("PASS: mixed approval/input waits retain approval priority")

@@ -2,29 +2,50 @@ import AppKit
 import SwiftUI
 
 @MainActor final class DisplayAlerts {
+    private let presentsWindows:Bool
+    init(presentsWindows:Bool=true){self.presentsWindows=presentsWindows}
+    var displayedIdentifier:String? {current?.id}
     private var panel:NSPanel?
     var onSnooze:((Set<String>)->Void)?
     private var hideTask:Task<Void,Never>?
-    private var pending:[(title:String,body:String,threads:Set<String>,open:()->Void)]=[]
-    private var currentThreads=Set<String>()
-    private var mode="cursor"
-    func show(title:String,body:String,mode:String,sound:Bool,threads:Set<String>=[],open:@escaping()->Void){
-        self.mode=mode
-        pending.append((title,body,threads,open))
-        if pending.count>20{pending.removeFirst(pending.count-20)}
-        if sound{NSSound(named:"Glass")?.play()}
-        if panel?.isVisible != true{next()}
+    private struct Notice {
+        let id:String;let title:String;let body:String;let threads:Set<String>;let open:()->Void;let priority:Int;let sound:Bool;let queued:Date
     }
-    func hideAll(){pending=[];hideTask?.cancel();panel?.orderOut(nil);currentThreads=[]}
+    private var pending=[Notice]()
+    private var current:Notice?
+    private var token=UUID()
+    private var mode="cursor"
+    func show(title:String,body:String,mode:String,sound:Bool,threads:Set<String>=[],identifier:String=UUID().uuidString,priority:Int=0,open:@escaping()->Void){
+        self.mode=mode
+        guard current?.id != identifier else{return}
+        pending.removeAll{$0.id==identifier}
+        pending.append(Notice(id:identifier,title:title,body:body,threads:threads,open:open,priority:priority,sound:sound,queued:Date()))
+        if pending.count>20{pending.remove(at:pending.firstIndex(where:{$0.priority==0}) ?? 0)}
+        if current==nil || priority>(current?.priority ?? -1){next()}
+    }
+    func hideAll(){pending=[];hideTask?.cancel();panel?.orderOut(nil);current=nil;token=UUID()}
+    func cancel(identifiers:Set<String>){
+        pending.removeAll{identifiers.contains($0.id)}
+        if let current,identifiers.contains(current.id){next()}
+    }
     func cancel(threads:Set<String>){
         pending.removeAll{PresentationPolicy.resolvedGroup($0.threads,by:threads)}
-        if PresentationPolicy.resolvedGroup(currentThreads,by:threads){next()}
+        if let current,PresentationPolicy.resolvedGroup(current.threads,by:threads){next()}
     }
+    func snoozeCurrent(){
+        guard let current,!current.threads.isEmpty else{return}
+        let expected=token;onSnooze?(current.threads);advance(expected)
+    }
+    private func advance(_ expected:UUID){guard token==expected else{return};next()}
     private func next(){
-        hideTask?.cancel()
-        panel?.orderOut(nil);currentThreads=[]
-        guard !pending.isEmpty else{return}
-        let alert=pending.removeFirst();currentThreads=alert.threads
+        hideTask?.cancel();panel?.orderOut(nil);current=nil;token=UUID()
+        pending.removeAll{Date().timeIntervalSince($0.queued)>30}
+        guard let index=pending.indices.max(by:{pending[$0].priority<pending[$1].priority}) else{return}
+        // Equal priorities retain FIFO ordering, even after a completion is preempted.
+        let priority=pending[index].priority
+        let alert=pending.remove(at:pending.firstIndex(where:{$0.priority==priority})!);current=alert
+        let expected=token
+        guard presentsWindows else{return}
         let point=NSEvent.mouseLocation
         let fixed=mode.hasPrefix("display:") ? NSScreen.screens.first{screen in
             let id=(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.stringValue
@@ -35,11 +56,13 @@ import SwiftUI
         let p=NSPanel(contentRect:frame,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         p.isOpaque=false;p.backgroundColor = .clear;p.hasShadow=true;p.level = .statusBar
         p.collectionBehavior=[.canJoinAllSpaces,.fullScreenAuxiliary,.ignoresCycle];p.hidesOnDeactivate=false;p.isReleasedWhenClosed=false
-        let view=DisplayAlertView(title:alert.title,message:alert.body,open:{[weak self] in alert.open();self?.next()},close:{[weak self] in self?.next()},snooze:alert.threads.isEmpty ? nil:{[weak self] in self?.onSnooze?(alert.threads);self?.next()})
+        let view=DisplayAlertView(title:alert.title,message:alert.body,open:{[weak self] in alert.open();self?.advance(expected)},close:{[weak self] in self?.advance(expected)},snooze:alert.threads.isEmpty ? nil:{[weak self] in self?.snoozeCurrent()})
         p.contentView=NSHostingView(rootView:view.frame(width:frame.width,height:frame.height).background(Glass()).clipShape(RoundedRectangle(cornerRadius:17)))
-        panel=p;p.orderFrontRegardless() // Never activate Mote or steal typing focus.
-        hideTask=Task{[weak self] in try? await Task.sleep(nanoseconds:10_000_000_000);guard !Task.isCancelled else{return};self?.next()}
+        panel=p;p.orderFrontRegardless()
+        if alert.sound{NSSound(named:"Glass")?.play()}
+        hideTask=Task{[weak self] in do{try await Task.sleep(nanoseconds:10_000_000_000)}catch{return};self?.advance(expected)}
     }
+
 }
 struct DisplayAlertView:View {
     var title:String;var message:String;var open:()->Void;var close:()->Void;var snooze:(()->Void)? = nil

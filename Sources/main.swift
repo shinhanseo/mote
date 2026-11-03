@@ -9,7 +9,7 @@ enum MotePreferences {
     static let store:UserDefaults = ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"].flatMap{UserDefaults(suiteName:$0)} ?? .standard
 }
 struct Job: Identifiable, Equatable {
-    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil;var waitSince:Date? = nil;var startedAt:Double = 0;var reason:String?=nil
+    var id: String; var title: String; var project: String; var status: String; var turn: String; var readReceipt:Bool? = nil;var waitSince:Date? = nil;var startedAt:Double = 0;var reason:String?=nil;var attentionKey:String?=nil
     var label: String { switch status {case "deferred":return L10n.text("답변 나중에 보기");case "reviewedError":return L10n.text("오류 확인함");case "unread": return L10n.text("답변 도착 · 미확인"); case "approval": return L10n.text("승인 대기"); case "answer": return L10n.text("답변 대기"); case "inProgress": return L10n.text("작업 중"); case "completed": return L10n.text("완료"); case "failed": return L10n.text("오류"); case "interrupted": return L10n.text("중단됨"); default: return L10n.text("확인 필요")} }
     var symbol: String { switch status {case "deferred":return "clock";case "reviewedError":return "checkmark";case "unread": return "envelope.badge"; case "approval": return "hand.raised"; case "answer": return "message"; case "inProgress": return "ellipsis"; case "completed": return "checkmark"; case "failed": return "exclamationmark.triangle"; default: return "questionmark"} }
 }
@@ -140,14 +140,15 @@ struct LocalReader {
         displayAlerts.cancel(threads:ids)
     }
     func checkSnoozes(now:Date=Date()){
+        var due=[Job]()
         for (id,notice) in snoozed {
             let pending=notice.unresolved(in:jobs)
             if pending.isEmpty{snoozed.removeValue(forKey:id);continue}
             guard notice.due<=now,!isAway,!paused,!muted else{continue}
             snoozed.removeValue(forKey:id)
-            guard now.timeIntervalSince(notice.due)<600 else{continue}
-            deliver(pending,title:L10n.text("모트 · 미뤄둔 작업을 확인해 주세요"),body:pending.map(visibleTitle).joined(separator:" · "),sound:attentionSound,identifier:"snooze:"+id)
+            if now.timeIntervalSince(notice.due)<600{due.append(contentsOf:pending)}
         }
+        if !due.isEmpty{deliver(due,title:L10n.text("모트 · 미뤄둔 작업을 확인해 주세요"),body:due.prefix(3).map(visibleTitle).joined(separator:" · "),sound:attentionSound,identifier:"snooze:"+due.map(\.id).sorted().joined(separator:":"))}
     }
     func setAway(_ away:Bool){
         guard isAway != away else{return};isAway=away
@@ -177,12 +178,19 @@ struct LocalReader {
     @Published var reminderMinutes=MotePreferences.store.integer(forKey:"reminderMinutes")==0 ? 5:MotePreferences.store.integer(forKey:"reminderMinutes") {didSet{MotePreferences.store.set(reminderMinutes,forKey:"reminderMinutes")}}
     let connectivity=Connectivity()
     @Published var networkAvailable:Bool?
+    private var lastOfflineNotice=Date.distantPast
     func receiveNetwork(_ available:Bool){
         let previous=networkAvailable;networkAvailable=available
-        if !available,previous != false,active>0,!muted,!paused {
+        if !available,previous != false,active>0,!muted,!paused,Date().timeIntervalSince(lastOfflineNotice)>=60 {
+            lastOfflineNotice=Date()
             deliver([],title:L10n.text("모트 · 네트워크 연결 없음"),body:L10n.text("Codex 진행을 확인해 주세요. 연결 복구가 필요할 수 있어요."),sound:attentionSound,identifier:"network-offline")
         }
-        if available,previous==false {refresh()}
+        if available,previous==false {
+            displayAlerts.cancel(identifiers:["network-offline"])
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:["network-offline"])
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:["network-offline"])
+            refresh()
+        }
         onUpdate?()
     }
     @Published var lastActivity=[String:Date]()
@@ -194,14 +202,18 @@ struct LocalReader {
     }
     func checkWaitReminders(now:Date=Date()){
         guard reminderEnabled,attentionAlerts,!muted,!paused,!isAway,liveConnected else{return}
+        var due=[Job]()
         for job in jobs where ["approval","answer"].contains(job.status) && snoozed[job.id]==nil {
             guard let since=job.waitSince,now.timeIntervalSince(since)>=Double(reminderMinutes*60) else{continue}
             let state=liveStates[job.id]
             let key="reminder|"+NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:(state?.requestIDs ?? [])+(state?.asyncQuestionIDs ?? []))
             guard ledger.claim(key,now:now) else{continue}
-            MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")
-            deliver([job],title:L10n.text("모트 · {0}분째 응답 대기", [String(describing: Int(now.timeIntervalSince(since)/60))]),body:job.title,sound:attentionSound,identifier:key)
+            due.append(job)
         }
+        guard !due.isEmpty else{return}
+        MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")
+        let title=due.count==1 ? L10n.text("모트 · {0}분째 응답 대기",[String(Int(now.timeIntervalSince(due[0].waitSince ?? now)/60))]):L10n.text("모트 · {0}개 작업이 응답을 기다려요",[String(due.count)])
+        deliver(due,title:title,body:due.prefix(3).map(visibleTitle).joined(separator:" · "),sound:attentionSound,identifier:"reminder:"+due.map{$0.attentionKey ?? $0.id+$0.turn}.sorted().joined(separator:":"))
     }
     var resetPolicy=UsageResetPolicy(pending:MotePreferences.store.dictionary(forKey:"usageResetPending") as? [String:Double] ?? [:],delivered:Set(MotePreferences.store.stringArray(forKey:"usageResetDelivered") ?? []))
     func applyUsage(_ snapshot:UsageSnapshot?){
@@ -229,6 +241,7 @@ struct LocalReader {
     var onNotice:(([Job],String,String)->Void)?
     var onOpenInbox:(()->Void)?
     var alertThreads=[String:Set<String>]()
+    var alertReferences=[String:[NoticeReference]]()
     var lastSystemReconcile=Date.distantPast
     var menuSummary:String {PresentationPolicy.summary(running:active,waiting:waiting,unread:unread,errors:jobs.filter{$0.status=="failed"}.count)}
     func deferReply(_ job:Job){deferred[job.id]=job.turn;reconcile();onUpdate?()}
@@ -270,7 +283,7 @@ struct LocalReader {
     var otherRunning:[Job] {runningJobs.filter{!pinnedIDs.contains($0.id)}}
     func makeCurrent(_ id:String){selected=id;pinnedIDs=WorkingConversations.adding(id,to:pinnedIDs);MotePreferences.store.set(pinnedIDs,forKey:"workingConversations");MotePreferences.store.set(id,forKey:"currentConversation")}
     func removeCurrent(_ id:String){undoPins=pinnedIDs;pinnedIDs=WorkingConversations.removing(id,from:pinnedIDs);MotePreferences.store.set(pinnedIDs,forKey:"workingConversations")}
-    func pause(){pauseUntil=Date().addingTimeInterval(1800);MotePreferences.store.set(pauseUntil,forKey:"pauseUntil")}
+    func pause(){displayAlerts.hideAll();pauseUntil=Date().addingTimeInterval(1800);MotePreferences.store.set(pauseUntil,forKey:"pauseUntil")}
     func resume(){pauseUntil=nil;MotePreferences.store.removeObject(forKey:"pauseUntil")}
     func setLogin(_ enabled:Bool){do{if enabled{try SMAppService.mainApp.register()}else{try SMAppService.mainApp.unregister()};loginEnabled=SMAppService.mainApp.status == .enabled;settingsError=SMAppService.mainApp.status == .requiresApproval ? L10n.text("시스템 설정의 로그인 항목에서 허용해 주세요."):nil}catch{settingsError=L10n.text("자동 실행 설정 실패: {0}", [String(describing: error.localizedDescription)]);loginEnabled=SMAppService.mainApp.status == .enabled}}
     func dismissError(_ job:Job){dismissedErrors.append(job.id+job.turn);dismissedErrors=Array(dismissedErrors.suffix(500));MotePreferences.store.set(dismissedErrors,forKey:"dismissedErrors");reconcile();onUpdate?()}
@@ -279,7 +292,28 @@ struct LocalReader {
     let live=LiveObserver();var rawJobs=[Job]();var liveStates=[String:LiveState]();var waitSignatures=[String:String]()
     var waiting:Int {jobs.filter{["approval","answer"].contains($0.status)}.count}
     var unread:Int {jobs.filter{$0.status=="unread"}.count}
-    var fairyStatus:String {waiting>0 ? (jobs.first{["approval","answer"].contains($0.status)}?.status ?? "answer") : unread>0 ? "unread" : jobs.contains{$0.status=="failed"} ? "failed" : active>0 ? "inProgress":"idle"}
+    var needsDetectionCheck:Bool {(!baseline && !demoMode) || error != nil || liveIssue != nil || !liveConnected || jobs.contains{$0.status=="unknown"} || rawJobs.contains{["inProgress","unknown"].contains($0.status) && liveStates[$0.id]==nil}}
+    var detectionLabel:String {error != nil ? L10n.text("기록 확인 필요"):networkAvailable==false ? L10n.text("네트워크 없음"):liveIssue != nil ? L10n.text("기록 감지"):liveConnected ? (needsDetectionCheck ? L10n.text("상태 확인 중"):L10n.text("연결됨")):L10n.text("실시간 연결 확인 중")}
+    var fairyStatus:String {
+        if jobs.contains(where:{$0.status=="approval"}){return "approval"}
+        if waiting>0{return "answer"}
+        if jobs.contains(where:{$0.status=="failed"}){return "failed"}
+        if unread>0{return "unread"}
+        if networkAvailable==false{return "offline"}
+        if needsDetectionCheck{return "unknown"}
+        return active>0 ? "inProgress":"idle"
+    }
+    var compactMenuTitle:String {
+        let approvals=jobs.filter{$0.status=="approval"}.count
+        if waiting>0{return approvals==waiting ? L10n.text("승인 {0}",[String(waiting)]):approvals==0 ? L10n.text("답변 {0}",[String(waiting)]):L10n.text("대기 {0}",[String(waiting)])}
+        if jobs.contains(where:{$0.status=="failed"}){return L10n.text("오류 {0}",[String(jobs.filter{$0.status=="failed"}.count)])}
+        if unread>0{return L10n.text("미확인 {0}",[String(unread)])}
+        if networkAvailable==false{return L10n.text("연결 확인")}
+        if needsDetectionCheck{return L10n.text("감지 확인")}
+        return active>0 ? L10n.text("진행 {0}",[String(active)]):""
+    }
+    var menuTooltip:String {[detectionLabel,menuSummary,L10n.text("클릭하면 확인할 작업을 볼 수 있어요")].filter{!$0.isEmpty}.joined(separator:"\n")}
+
     let monitoringStarted=Date().timeIntervalSince1970
     var baseline=false; var previous=[String:Job](); var timer: Timer?; var reading=false
     var onUpdate: (() -> Void)?
@@ -314,7 +348,7 @@ struct LocalReader {
         connectivity.start{[weak self] available in Task{@MainActor in self?.receiveNetwork(available)}}
         live.onDiagnostic = {[weak self] message in Task{@MainActor in guard let self else{return};self.liveIssue=message;if message != nil{self.liveStates.removeAll();self.reconcile();self.onUpdate?()}}}
         live.onState = {[weak self] id,state in Task { @MainActor in self?.receive(id,state) }}
-        live.onConnection = {[weak self] connected in Task { @MainActor in guard let self,self.liveConnected != connected else{return};self.liveConnected=connected;fputs("Mote IPC connected: \(connected)\n",stderr);if !connected{self.liveStates.removeAll();self.waitSignatures.removeAll();self.reconcile();self.onUpdate?()}}}
+        live.onConnection = {[weak self] connected in Task { @MainActor in self?.receiveConnection(connected)}}
         recordWatcher.start{[weak self] in Task{@MainActor in self?.recordsDirty=true;self?.refresh(forceRead:false)}}
         live.start();refresh(); timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in Task { @MainActor in self?.refresh(forceRead:false) }};timer?.tolerance=0.3; updatePermission() }
     func updatePermission() { UNUserNotificationCenter.current().getNotificationSettings { settings in Task { @MainActor in self.notificationStatus = settings.authorizationStatus == .authorized ? L10n.text("알림 켜짐") : L10n.text("알림 허용 필요") } } }
@@ -324,30 +358,40 @@ struct LocalReader {
             else {UNUserNotificationCenter.current().requestAuthorization(options:[.alert,.sound]) { _,_ in Task { @MainActor in self.updatePermission() } }}
         }
     }
-    func notify(_ job:Job,requests:[String]=[],test:Bool=false) {
+    func notify(_ incoming:Job,requests:[String]=[],test:Bool=false) {
+        var job=incoming
+        if ["approval","answer"].contains(job.status){job.attentionKey=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)}
+        if let notice=snoozed[job.id],notice.unresolved(in:[job]).isEmpty{snoozed.removeValue(forKey:job.id)}
         guard test || job.status != "completed" || job.readReceipt != false else{return}
         let attention=["approval","answer"].contains(job.status)
         guard test || (!muted && !paused && (attention ? attentionAlerts : job.status=="failed" ? errorAlerts:completionAlerts)) else{return}
         let key=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)
+        if job.status=="completed" && !test {
+            guard ledger.sent[key]==nil,!completionQueue.contains(where:{$0.id==job.id && $0.turn==job.turn}) else{return}
+            completionQueue.append(job)
+            if completionTask==nil {completionTask=Task{[weak self] in do{try await Task.sleep(nanoseconds:1_500_000_000)}catch{return};self?.flushCompletions()}}
+            return
+        }
         guard test || ledger.claim(key) else{return}
         if !test{MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")}
-        if !test,["completed","approval","answer"].contains(job.status),snoozed[job.id]==nil,
-            MobileNotifier.shouldSend(awayOnly:mobile.awayOnly,locked:screensAsleep,idleSeconds:CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)) {
-            Task{await mobile.send(thread:job.id,turn:job.turn,kind:job.status,title:job.title,privateMode:privacyMode,requests:requests)}
-        }
+        if !test{relayNotice(job,requests:requests)}
         let content=UNMutableNotificationContent()
         content.title=test ? L10n.text("모트 · 테스트 알림") : ["approval":L10n.text("모트 · 승인이 필요해요"),"answer":L10n.text("모트 · 답변을 기다리고 있어요"),"failed":L10n.text("모트 · 작업에 문제가 생겼어요")][job.status] ?? L10n.text("모트 · 작업이 끝났어요")
         content.body=String(job.title.prefix(100))+(job.reason.map{"\n"+$0} ?? "");if test || (attention ? attentionSound:completionSound){content.sound = .default};content.userInfo=["threadID":job.id]
-        if job.status=="completed" && !test {
-            completionQueue.append(job)
-            if completionTask==nil {completionTask=Task{[weak self] in try? await Task.sleep(nanoseconds:1_500_000_000);guard !Task.isCancelled,let self else{return};self.flushCompletions()}}
-            return
-        }
         deliver([job],title:content.title,body:content.body,sound:test || (attention ? attentionSound:completionSound),identifier:key)
     }
+    private func relayNotice(_ job:Job,requests:[String]=[]){
+        guard ["completed","approval","answer"].contains(job.status),snoozed[job.id]==nil,
+            MobileNotifier.shouldSend(awayOnly:mobile.awayOnly,locked:screensAsleep,idleSeconds:CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)) else{return}
+        Task{await mobile.send(thread:job.id,turn:job.turn,kind:job.status,title:job.title,privateMode:privacyMode,requests:requests)}
+    }
     func flushCompletions(){
-        let pending=completionQueue;completionQueue=[];completionTask=nil
-        guard !pending.isEmpty,!paused,!muted,completionAlerts else{return}
+        let candidates=completionQueue.filter{NoticeReference(job:$0).isRelevant(in:jobs)};completionQueue=[];completionTask?.cancel();completionTask=nil
+        guard !candidates.isEmpty,!paused,!muted,completionAlerts else{return}
+        let pending=candidates.filter{ledger.claim(NotificationLedger.key(thread:$0.id,turn:$0.turn,kind:"completed"))}
+        guard !pending.isEmpty else{return}
+        MotePreferences.store.set(ledger.sent,forKey:"notificationLedger")
+        for job in pending{relayNotice(job)}
         let title=pending.count==1 ? L10n.text("모트 · 작업이 끝났어요"):L10n.text("모트 · 작업 {0}개가 끝났어요", [String(describing: pending.count)])
         deliver(pending,title:title,body:pending.prefix(3).map(\.title).joined(separator:" · "),sound:completionSound,identifier:"complete:"+pending.map{$0.id+$0.turn}.sorted().joined(separator:":"))
     }
@@ -357,33 +401,41 @@ struct LocalReader {
         let notices=notices.filter{snoozed[$0.id]==nil}
         guard originalCount==0 || !notices.isEmpty else{return}
         let body=privacyMode && !notices.isEmpty ? L10n.text("대화 내용은 숨겨져 있어요. Mote에서 확인해 주세요."):body
-        if let onNotice {onNotice(notices,title,body);return}
         let threads=Set(notices.map(\.id));alertThreads[identifier]=threads
+        if !notices.isEmpty,!notices.contains(where:{$0.id=="test"}){alertReferences[identifier]=notices.map{NoticeReference(job:$0)}}
+        if let onNotice {onNotice(notices,title,body);return}
         if alertDisplay != "system" {
-            displayAlerts.show(title:title,body:body,mode:alertDisplay,sound:sound,threads:threads){[weak self] in
+            displayAlerts.show(title:title,body:body,mode:alertDisplay,sound:sound,threads:threads,identifier:identifier,priority:notices.contains(where:{["approval","answer","failed"].contains($0.status)}) ? 1:0){[weak self] in
                 guard let self else{return};if notices.count==1,let job=notices.first,job.id != "test"{self.open(job.id)}else{self.onOpenInbox?()}
             };return
         }
         let content=UNMutableNotificationContent();content.title=title;content.body=body
         if !notices.isEmpty{content.categoryIdentifier="MOTE_TASK"}
         if sound{content.sound = .default};content.userInfo=["threadID":notices.count==1 ? notices[0].id:"batch","threadIDs":Array(threads)]
+        content.userInfo["moteReferences"]=notices.filter{$0.id != "test"}.map{["id":$0.id,"turn":$0.turn,"status":$0.status,"key":$0.attentionKey ?? ""]}
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:identifier,content:content,trigger:nil)){error in
             if error != nil{Task{@MainActor in self.settingsError=L10n.text("알림 전송에 실패했어요. 알림 허용 설정을 확인해 주세요.")}}
         }
     }
     func clearResolvedAlerts(){
-        let resolved=Set(jobs.filter{job in
-            ["inProgress","interrupted","reviewedError","deferred"].contains(job.status) || (job.status=="completed" && job.readReceipt==false)
-        }.map(\.id))
-        completionQueue.removeAll{notice in jobs.contains{job in job.id==notice.id && ((job.status=="completed" && job.readReceipt==false) || job.turn != notice.turn)}}
-        displayAlerts.cancel(threads:resolved)
-        let identifiers=alertThreads.filter{PresentationPolicy.resolvedGroup($0.value,by:resolved)}.map(\.key)
-        for id in identifiers{alertThreads.removeValue(forKey:id)}
+        let resolved=Set(jobs.filter{["inProgress","interrupted","reviewedError","deferred"].contains($0.status) || ($0.status=="completed" && $0.readReceipt==false)}.map(\.id))
+        completionQueue.removeAll{!NoticeReference(job:$0).isRelevant(in:jobs)}
+        let identifiers=alertReferences.filter{!$0.value.contains(where:{$0.isRelevant(in:jobs)})}.map(\.key)
+        for id in identifiers{alertReferences.removeValue(forKey:id);alertThreads.removeValue(forKey:id)}
+        displayAlerts.cancel(identifiers:Set(identifiers))
         if !identifiers.isEmpty{UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:identifiers);UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers:identifiers)}
         if alertDisplay=="system",Date().timeIntervalSince(lastSystemReconcile)>10{
             lastSystemReconcile=Date()
+            let currentJobs=jobs
             UNUserNotificationCenter.current().getDeliveredNotifications{notifications in
                 let remove=notifications.filter{note in
+                    if let refs=note.request.content.userInfo["moteReferences"] as? [[String:String]],!refs.isEmpty {
+                        return !refs.contains{r in
+                            guard let id=r["id"],let turn=r["turn"],let kind=r["status"] else{return false}
+                            var job=Job(id:id,title:"",project:"",status:kind,turn:turn);job.attentionKey=r["key"].flatMap{$0.isEmpty ? nil:$0}
+                            return NoticeReference(job:job).isRelevant(in:currentJobs)
+                        }
+                    }
                     let ids=Set(note.request.content.userInfo["threadIDs"] as? [String] ?? [])
                     return PresentationPolicy.resolvedGroup(ids,by:resolved)
                 }.map{$0.request.identifier}
@@ -415,24 +467,30 @@ struct LocalReader {
         reading=false
         switch result {case .success(let found):
             if baseline {for j in found where previous[j.id]?.turn != j.turn && j.startedAt>=monitoringStarted-3 {makeCurrent(j.id)}}
-            if baseline { for j in found { if let old=previous[j.id], ["completed","failed"].contains(j.status), (j.turn != old.turn || old.status == "inProgress") { notify(j) } } }
+            let finished=baseline ? found.filter{j in guard let old=previous[j.id] else{return false};return ["completed","failed"].contains(j.status) && (j.turn != old.turn || old.status=="inProgress")} : []
             previous=Dictionary(uniqueKeysWithValues:found.map{($0.id,$0)});rawJobs=found;lastSync=Date()
             if !baseline {for job in found.reversed() where job.status=="inProgress" && !pinnedIDs.contains(job.id){makeCurrent(job.id)}}
             let chronological=found.sorted{a,b in a.startedAt==b.startedAt ? a.turn<b.turn:a.startedAt<b.startedAt}
             if currentPolicy.started==0 {if let newest=chronological.last{followNewTurn(id:newest.id,turn:newest.turn,started:newest.startedAt)}}
             else{for job in chronological{followNewTurn(id:job.id,turn:job.turn,started:job.startedAt)}}
-            live.observe(found.map(\.id));reconcile();if error != warning {error=warning};baseline=true
+            live.observe(found.map(\.id));reconcile();for candidate in finished{if let current=jobs.first(where:{$0.id==candidate.id && $0.turn==candidate.turn}),["completed","unread","failed"].contains(current.status){var notice=current;if notice.status=="unread"{notice.status="completed"};notify(notice)}};if error != warning {error=warning};baseline=true
             if isAway,!screensAsleep,CGEventSource.secondsSinceLastEventType(.combinedSessionState,eventType:CGEventType(rawValue:UInt32.max)!)<300 {setAway(false)}
         case .failure(let e): recordsDirty=true;error=e.localizedDescription }
         onUpdate?()
+    }
+    func receiveConnection(_ connected:Bool){
+        guard liveConnected != connected else{return};liveConnected=connected
+        fputs("Mote IPC connected: \(connected)\n",stderr)
+        if !connected{liveStates.removeAll();waitSignatures.removeAll()}
+        reconcile();onUpdate?()
     }
     func receive(_ id:String,_ state:LiveState) {
         let old=liveStates[id]
         if let latest=state.latestTurn,let raw=rawJobs.first(where:{$0.id==id}),latest.id != raw.turn,latest.started/1000 < raw.startedAt {return}
         if lastActivity[id]==nil || (old != nil && (old!.activityRevision != state.activityRevision || old!.latestTurn?.id != state.latestTurn?.id || old!.waiting != state.waiting)) {if Date().timeIntervalSince(lastActivity[id] ?? .distantPast)>=1 {lastActivity[id]=Date()}}
         if let latest=state.latestTurn,rawJobs.contains(where:{$0.id==id}){followNewTurn(id:id,turn:latest.id,started:latest.started/1000)}
-        if let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
-            latest.id != prior.id || latest.status != prior.status,let raw=rawJobs.first(where:{$0.id==id}) {
+        if state.waiting==nil,let latest=state.latestTurn,["completed","failed"].contains(latest.status),let prior=old?.latestTurn,
+            latest.id != prior.id || latest.status != prior.status || old?.waiting != nil,let raw=rawJobs.first(where:{$0.id==id}) {
             var finished=raw;finished.turn=latest.id;finished.status=latest.status;finished.readReceipt = raw.turn == latest.id ? raw.readReceipt:nil;notify(finished)
             refresh()
         }
@@ -469,7 +527,7 @@ struct LocalReader {
             if ["approval","answer"].contains(job.status){
                 let state=liveStates[raw.id]
                 let key=NotificationLedger.key(thread:raw.id,turn:state?.latestTurn?.id ?? raw.turn,kind:job.status,requests:(state?.requestIDs ?? [])+(state?.asyncQuestionIDs ?? []))
-                if waitTimes[key]==nil{waitTimes[key]=Date()};job.waitSince=waitTimes[key]
+                if waitTimes[key]==nil{waitTimes[key]=Date()};job.waitSince=waitTimes[key];job.attentionKey=key
             }
             if job.status=="failed",dismissedErrors.contains(job.id+job.turn){job.status="reviewedError"}
             return job
@@ -494,7 +552,7 @@ struct LocalReader {
     func open(_ id:String) {
         if demoMode{return}
         guard let url=Self.conversationURL(id) else{error=L10n.text("대화 링크가 올바르지 않아요.");onUpdate?();return}
-        if openURL(url){makeCurrent(id);refresh()}else{error=L10n.text("Codex에서 대화를 열지 못했어요. Codex 설치와 실행 상태를 확인해 주세요.");onUpdate?()}
+        if openURL(url){makeCurrent(id);refresh()}else{settingsError=L10n.text("Codex에서 대화를 열지 못했어요. Codex 설치와 실행 상태를 확인해 주세요.");onUpdate?()}
         // Opening a link is not proof that a reply was read; only Codex receipts clear it.
     }
 
@@ -570,28 +628,29 @@ struct Panel:View {
         }
         if model.unread>0{return L10n.text("미확인 답변이\n{0}개 있어요.", [String(describing: model.unread)])}
         if model.jobs.contains(where:{$0.status=="failed"}){return L10n.text("확인이 필요한\n오류가 있어요.")}
-        if model.error != nil && model.active==0{return L10n.text("작업 상태를 확인할 수 없어요.")}
+        if model.needsDetectionCheck{return L10n.text("작업 상태를 확인할 수 없어요.")}
         return model.active>0 ? L10n.text("{0}개 작업이\n진행 중이에요.", [String(describing: model.active)]):L10n.text("지금은 쉬고 있어요.")
     }
     var body:some View {
         VStack(alignment:.leading,spacing:16){
-            HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill((model.error != nil || model.networkAvailable==false) ? Color.orange:model.liveConnected ? Palette.olive:Color.orange).frame(width:6,height:6);Text(model.error != nil ? L10n.text("기록 확인 필요"):model.networkAvailable==false ? L10n.text("네트워크 없음"):model.liveIssue != nil ? L10n.text("기록 감지"):model.liveConnected ? L10n.text("연결됨"):L10n.text("재연결 중")).font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel(L10n.text("설정"))}
+            HStack{Text("mote.").font(.system(size:24,weight:.semibold,design:.rounded));HStack(spacing:4){Circle().fill((model.needsDetectionCheck || model.networkAvailable==false) ? Color.orange:Palette.olive).frame(width:6,height:6);Text(model.detectionLabel).font(.system(size:11))}.accessibilityElement(children:.combine);Spacer();Button{model.showSettings.toggle()}label:{Image(systemName:"slider.horizontal.3")}.buttonStyle(.plain).accessibilityLabel(L10n.text("설정"))}
             UpdateNotice(updates:model.updates)
             if model.demoMode{Text(L10n.text("미리보기 · 실제 대화와 무관한 테스트 상태")).font(.caption).foregroundStyle(.orange)}
             if model.showSettings{settings}else{
                 HStack{VStack(alignment:.leading,spacing:7){Text(L10n.text("작은 먼지가 챙겨둘게요")).font(.caption).foregroundStyle(.secondary);Text(headline).font(.system(size:25,weight:.semibold)).fixedSize(horizontal:false,vertical:true)
                     if model.waiting>0{Text(L10n.text("승인 {0} · 답변 {1} · 오래 기다린 순", [String(describing: model.jobs.filter{$0.status=="approval"}.count), String(describing: model.jobs.filter{$0.status=="answer"}.count)])).font(.system(size:11)).foregroundStyle(.secondary)}
-                };Spacer();Dust(status:model.networkAvailable==false ? "offline":model.fairyStatus).frame(width:100,height:95)}
-                if !model.currentJobs.isEmpty {
-                    HStack{Label(L10n.text("고정한 대화 {0}", [String(describing: model.currentJobs.count)]),systemImage:"pin.fill").font(.system(size:12,weight:.semibold)).foregroundStyle(.primary);Spacer();Button(L10n.text("완료 정리")){model.cleanCompleted()}.font(.system(size:11)).buttonStyle(.borderless)}
-                    VStack(spacing:5){ForEach(model.currentJobs){current in
+                };Spacer();Dust(status:model.fairyStatus).frame(width:100,height:95)}
+                if !model.attentionJobs.isEmpty {VStack(spacing:5){ForEach(model.attentionJobs){row($0)}}}
+                let quietPins=model.currentJobs.filter{!["approval","answer","unread","failed"].contains($0.status)}
+                if !quietPins.isEmpty {
+                    HStack{Label(L10n.text("고정한 대화 {0}", [String(describing: quietPins.count)]),systemImage:"pin.fill").font(.system(size:12,weight:.semibold)).foregroundStyle(.primary);Spacer();Button(L10n.text("완료 정리")){model.cleanCompleted()}.font(.system(size:11)).buttonStyle(.borderless)}
+                    VStack(spacing:5){ForEach(quietPins){current in
                         HStack(spacing:5){row(current);if !["approval","answer"].contains(current.status){Button{model.removeCurrent(current.id)}label:{Image(systemName:"xmark").font(.system(size:10)).frame(width:25,height:32)}.buttonStyle(.plain).foregroundStyle(.secondary).help(L10n.text("고정 해제 · 대화는 삭제하지 않아요"))}}
                     }}
                 }
-                HStack{Button((model.error != nil || model.networkAvailable==false) ? L10n.text("상태 확인 불가"):L10n.text("확인할 작업 {0}", [String(describing: model.attentionJobs.count)])){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button(L10n.text("감지한 대화 {0}", [String(describing: model.jobs.count)])){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
+                HStack{Button(((model.needsDetectionCheck || model.networkAvailable==false) && model.attentionJobs.isEmpty) ? L10n.text("상태 확인 불가"):L10n.text("확인할 작업 {0}", [String(describing: model.attentionJobs.count)])){model.all=false}.fontWeight(model.all ? .regular:.semibold).foregroundStyle(model.all ? Color.secondary:Palette.olive);Button(L10n.text("감지한 대화 {0}", [String(describing: model.jobs.count)])){model.all=true}.fontWeight(model.all ? .semibold:.regular).foregroundStyle(model.all ? Color.primary:Color.secondary);Spacer()}.buttonStyle(.borderless)
                 VStack(alignment:.leading,spacing:4){
-                    if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id)}){row($0)}}else{
-                        ForEach(model.inboxJobs){row($0)}
+                    if model.all{ForEach(model.jobs.filter{!model.pinnedIDs.contains($0.id) && !["approval","answer","unread","failed"].contains($0.status)}){row($0)}}else{
                         if !model.otherRunning.isEmpty{Text(L10n.text("진행 중 {0}", [String(describing: model.active)])).font(.caption).foregroundStyle(.secondary).padding(.top,15);ForEach(model.otherRunning){row($0)}}
 
                     }
@@ -607,6 +666,10 @@ struct Panel:View {
                 }.padding(.top,8)
             }
             if model.undoPins != nil{HStack{Text(L10n.text("작업 목록을 정리했어요"));Spacer();Button(L10n.text("되돌리기")){model.undoCleanup()}}.font(.caption).foregroundStyle(.secondary)}
+            if !model.liveConnected {
+                Text(L10n.text("실시간 연결 전에는 승인·입력 대기를 확인할 수 없어요.")).font(.caption).foregroundStyle(.secondary)
+                if let sync=model.lastSync{Text(L10n.text("마지막 기록 확인 {0}",[sync.moteFormatted(date:.omitted,time:.standard)])).font(.caption2).foregroundStyle(.secondary)}
+            }
             if let issue=model.liveIssue{Text(issue).font(.caption).foregroundStyle(.orange)}
             if let error=model.error{Text(error).font(.caption).foregroundStyle(.orange)}
             if let message=model.settingsError{Text(message).font(.caption).foregroundStyle(.secondary)}
@@ -623,8 +686,8 @@ struct Panel:View {
     }
     func row(_ job:Job)->some View {
         Button{model.open(job.id)}label:{
-            HStack(spacing:11){Group{if job.status=="inProgress"{RunningIndicator()}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).foregroundStyle(stateColor(job.status)).background(stateColor(job.status).opacity(0.12),in:RoundedRectangle(cornerRadius:9))
-                VStack(alignment:.leading,spacing:4){Text(model.visibleTitle(job)).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{RunningCaption(project:model.privacyMode ? L10n.text("비공개"):job.project);TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text(model.privacyMode ? job.label:"\(job.project) · \(L10n.text(job.reason ?? job.label))").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text(model.privacyMode ? job.label:"\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
+            HStack(spacing:11){Group{if job.status=="inProgress"{if model.demoMode || (model.liveConnected && model.liveStates[job.id] != nil){RunningIndicator()}else{Image(systemName:"questionmark")}}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).foregroundStyle(stateColor(job.status)).background(stateColor(job.status).opacity(0.12),in:RoundedRectangle(cornerRadius:9))
+                VStack(alignment:.leading,spacing:4){Text(model.visibleTitle(job)).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{if model.demoMode || (model.liveConnected && model.liveStates[job.id] != nil){RunningCaption(project:model.privacyMode ? L10n.text("비공개"):job.project)}else{Text(L10n.text("마지막 기록 · 작업 중")).font(.caption).foregroundStyle(.secondary)};TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text(model.privacyMode ? job.label:"\(job.project) · \(L10n.text(job.reason ?? job.label))").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text(model.privacyMode ? job.label:"\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
                     if ["approval","answer"].contains(job.status){if let since=job.waitSince{TimelineView(.periodic(from:.now,by:30)){context in Text(L10n.text("기다린 지 {0}분 · 감지 시점 기준", [String(describing: max(0,Int(context.date.timeIntervalSince(since)/60)))])).font(.system(size:11)).foregroundStyle(.secondary)}}else{Text(L10n.text("대기 시간 확인 중")).font(.system(size:11)).foregroundStyle(.secondary)}}
                 };Spacer();if job.status=="unread"{Circle().fill(Palette.olive).frame(width:7,height:7)};if ["approval","answer"].contains(job.status){Label(L10n.text("열기"),systemImage:"arrow.up.right").font(.system(size:12,weight:.semibold)).foregroundStyle(stateColor(job.status))}else{Label(L10n.text("열기"),systemImage:"arrow.up.right").font(.system(size:11)).foregroundStyle(.secondary)}
             }.padding(11).frame(maxWidth:.infinity,alignment:.leading).background(Color.primary.opacity(0.035),in:RoundedRectangle(cornerRadius:11))
@@ -693,13 +756,13 @@ struct CompactPanel:View {
         UNUserNotificationCenter.current().setNotificationCategories([UNNotificationCategory(identifier:"MOTE_TASK",actions:[snoozeAction],intentIdentifiers:[],options:[])])
         item=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
         item.button?.target=self;item.button?.action=#selector(toggle)
-        menuFairy=MenuFairy(button:item.button);menuFairy.update("idle")
+        menuFairy=MenuFairy(button:item.button);menuFairy.update("unknown")
         panel=MotePanel(contentRect:NSRect(x:0,y:0,width:440,height:700),styleMask:[.titled,.fullSizeContentView],backing:.buffered,defer:false)
         panel.title="Mote";panel.titleVisibility = .hidden;panel.titlebarAppearsTransparent=true
         panel.isOpaque=false;panel.backgroundColor = .clear;panel.hasShadow=true;panel.level = .floating
         panel.isMovableByWindowBackground=true;panel.hidesOnDeactivate=false
         panel.standardWindowButton(.closeButton)?.isHidden=true;panel.standardWindowButton(.miniaturizeButton)?.isHidden=true;panel.standardWindowButton(.zoomButton)?.isHidden=true
-        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus);let title=self.monitor.error != nil ? L10n.text(" 확인 필요") : " "+self.monitor.menuSummary;if self.item.button?.title != title {self.item.button?.title=title}}
+        monitor.onUpdate = {[weak self] in guard let self else{return};self.menuFairy.update(self.monitor.fairyStatus,detail:self.monitor.menuTooltip);let compact=self.monitor.compactMenuTitle;let title=compact.isEmpty ? "":" "+compact;if self.item.button?.title != title {self.item.button?.title=title}}
         monitor.onOpenInbox = {[weak self] in guard let self else{return};if !self.panel.isVisible{self.toggle()}}
         outsideClickMonitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]){[weak self] _ in Task{@MainActor in self?.panel.orderOut(nil)}}
         localClickMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown]){[weak self] event in
@@ -717,9 +780,9 @@ struct CompactPanel:View {
         monitor.demoMode=true
         let pins=monitor.pinnedIDs
         Task{@MainActor in
-            let states=["inProgress","approval","answer","unread","offline","idle"]
+            let states=["inProgress","approval","answer","unread","offline","unknown","idle"]
             for state in states {
-                self.monitor.networkAvailable=state != "offline";self.monitor.liveConnected=true
+                self.monitor.networkAvailable=state != "offline";self.monitor.liveConnected=state != "unknown"
                 self.monitor.notificationStatus=L10n.text("테스트 알림")
                 let status=state=="offline" ? "inProgress":state=="idle" ? "completed":state
                 let job=Job(id:"demo",title:L10n.text("[데모] 로그인 화면 구현"),project:"mote-demo",status:status,turn:"demo",waitSince:["approval","answer"].contains(state) ? Date().addingTimeInterval(-300):nil,reason:state=="approval" ? L10n.text("명령 실행 승인이 필요해요"):state=="answer" ? L10n.text("진행 방식을 선택해 주세요"):nil)

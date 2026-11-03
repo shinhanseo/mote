@@ -76,16 +76,17 @@ struct LiveState {
         for (key,object) in entities {capture(key,object)}
     }
     var waiting: String? {
+        let flags = runtime["activeFlags"] as? [String] ?? []
+        if runtime["type"] as? String == "active",flags.contains("waitingOnApproval") { return "approval" }
         if !asyncQuestionIDs.isEmpty{return "answer"}
         guard runtime["type"] as? String == "active" else { return nil }
-        let flags = runtime["activeFlags"] as? [String] ?? []
-        if flags.contains("waitingOnApproval") { return "approval" }
         if flags.contains("waitingOnUserInput") { return "answer" }
         return nil
     }
     mutating func apply(_ change:[String:Any]) -> Bool {
         guard let rev=change["revision"] as? Int else { return false }
         if change["type"] as? String == "snapshot", let state=change["conversationState"] as? [String:Any] {
+            guard rev>=revision else{return false}
             turns.removeAll();questionItems.removeAll()
             if let history=state["turnHistory"] as? [String:Any] {captureHistory(history)}
             if let list=state["turns"] as? [[String:Any]] {for (i,object) in list.enumerated(){capture("legacy:\(i)",object)}}
