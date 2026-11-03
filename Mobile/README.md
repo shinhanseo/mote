@@ -78,3 +78,8 @@ The shared transport now lives in `Sources/CloudRelay.swift`, and the mobile pro
 Local build and regression tests are not end-to-end push verification. Mac CloudKit provisioning and owner iPhone receipt must be verified before announcing delivery as working.
 
 Actual owner Mac connection attempt returned `Invalid bundle ID for container` at CloudKit record fetch. The signed profile alone was insufficient: the Developer portal App ID/container association must be corrected before end-to-end delivery can be verified. Browser automation was disabled at that point. Do not describe Mac push as operational until this is resolved. `build-mac-cloud.sh` prepares isolated provisioned Mac test builds without changing public build defaults.
+
+
+## Container reassociation verification
+
+On the owner Mac, removing and restoring the existing `dev.local.mote` → `iCloud.im.mote.companion` assignment resolved `Invalid bundle ID for container`. A fresh owner test run in Production successfully registered the Mac and saved a newly created completion test event. iPhone subscription was enabled by the owner; physical push receipt must be confirmed separately. The active owner Mac test build is development-signed, not a new public notarized release.

@@ -293,6 +293,7 @@ struct LocalReader {
         Task{
             if CommandLine.arguments.contains("--connect-mobile") {
                 await mobile.connect()
+                if mobile.enabled,CommandLine.arguments.contains("--test-mobile"){await mobile.test();fputs(mobile.issue == nil ? "Mote mobile test saved to CloudKit\n":"Mote mobile test failed\n",stderr)}
                 fputs(mobile.enabled ? "Mote mobile relay connected\n":"Mote mobile relay: \(mobile.issue ?? "unknown")\n",stderr)
             }else{await mobile.restore()}
         }
