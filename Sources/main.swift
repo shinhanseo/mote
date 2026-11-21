@@ -286,7 +286,28 @@ struct LocalReader {
     func pause(){displayAlerts.hideAll();pauseUntil=Date().addingTimeInterval(1800);MotePreferences.store.set(pauseUntil,forKey:"pauseUntil")}
     func resume(){pauseUntil=nil;MotePreferences.store.removeObject(forKey:"pauseUntil")}
     func setLogin(_ enabled:Bool){do{if enabled{try SMAppService.mainApp.register()}else{try SMAppService.mainApp.unregister()};loginEnabled=SMAppService.mainApp.status == .enabled;settingsError=SMAppService.mainApp.status == .requiresApproval ? L10n.text("시스템 설정의 로그인 항목에서 허용해 주세요."):nil}catch{settingsError=L10n.text("자동 실행 설정 실패: {0}", [String(describing: error.localizedDescription)]);loginEnabled=SMAppService.mainApp.status == .enabled}}
-    func dismissError(_ job:Job){dismissedErrors.append(job.id+job.turn);dismissedErrors=Array(dismissedErrors.suffix(500));MotePreferences.store.set(dismissedErrors,forKey:"dismissedErrors");reconcile();onUpdate?()}
+    func errorWasReviewed(_ job: Job) -> Bool {
+        dismissedErrors.contains(NotificationLedger.key(thread: job.id, turn: job.turn, kind: "failed")) ||
+            dismissedErrors.contains(job.id + job.turn)
+    }
+    func dismissError(_ job: Job) {
+        guard job.status == "failed" else { return }
+        let key = NotificationLedger.key(thread: job.id, turn: job.turn, kind: "failed")
+        dismissedErrors.removeAll { $0 == key }
+        dismissedErrors.append(key)
+        dismissedErrors = Array(dismissedErrors.suffix(500))
+        MotePreferences.store.set(dismissedErrors, forKey: "dismissedErrors")
+        // Update the displayed snapshot too. A menu action may run between record
+        // refreshes, or after its live snapshot has been replaced on reconnect.
+        jobs = jobs.map { current in
+            guard current.id == job.id, current.turn == job.turn, current.status == "failed" else { return current }
+            var reviewed = current
+            reviewed.status = "reviewedError"
+            return reviewed
+        }
+        if !rawJobs.isEmpty { reconcile() } else { clearResolvedAlerts() }
+        onUpdate?()
+    }
 
     let mobile=MobileNotifier()
     let live=LiveObserver();var rawJobs=[Job]();var liveStates=[String:LiveState]();var waitSignatures=[String:String]()
@@ -366,6 +387,7 @@ struct LocalReader {
     }
     func notify(_ incoming:Job,requests:[String]=[],test:Bool=false) {
         var job=incoming
+        if !test, job.status == "failed", errorWasReviewed(job) { return }
         if ["approval","answer"].contains(job.status){job.attentionKey=NotificationLedger.key(thread:job.id,turn:job.turn,kind:job.status,requests:requests)}
         if let notice=snoozed[job.id],notice.unresolved(in:[job]).isEmpty{snoozed.removeValue(forKey:job.id)}
         guard test || job.status != "completed" || job.readReceipt != false else{return}
@@ -538,7 +560,7 @@ struct LocalReader {
                 let key=NotificationLedger.key(thread:raw.id,turn:state?.latestTurn?.id ?? raw.turn,kind:job.status,requests:(state?.requestIDs ?? [])+(state?.asyncQuestionIDs ?? []))
                 if waitTimes[key]==nil{waitTimes[key]=Date()};job.waitSince=waitTimes[key];job.attentionKey=key
             }
-            if job.status=="failed",dismissedErrors.contains(job.id+job.turn){job.status="reviewedError"}
+            if job.status=="failed",errorWasReviewed(job){job.status="reviewedError"}
             return job
         }.enumerated().sorted{a,b in
             func rank(_ status:String)->Int{switch status{case "approval","answer":return 0;case "failed":return 1;case "unread":return 2;case "inProgress":return 3;default:return 4}}
@@ -696,6 +718,7 @@ struct Panel:View {
         switch status {case "approval":return Color(nsColor:NSColor(name:nil){$0.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor.systemOrange:NSColor(calibratedRed:0.64,green:0.29,blue:0.02,alpha:1)});case "answer":return Color(nsColor:NSColor(name:nil){$0.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua ? NSColor.systemTeal:NSColor(calibratedRed:0.10,green:0.36,blue:0.41,alpha:1)});case "failed":return .red;default:return Palette.olive}
     }
     func row(_ job:Job)->some View {
+        HStack(spacing: 6) {
         Button{model.open(job.id)}label:{
             HStack(spacing:11){Group{if job.status=="inProgress"{if model.demoMode || (model.liveConnected && model.liveStates[job.id] != nil){RunningIndicator()}else{Image(systemName:"questionmark")}}else{Image(systemName:job.symbol)}}.frame(width:32,height:32).foregroundStyle(stateColor(job.status)).background(stateColor(job.status).opacity(0.12),in:RoundedRectangle(cornerRadius:9))
                 VStack(alignment:.leading,spacing:4){Text(model.visibleTitle(job)).font(.system(size:14,weight:.medium)).lineLimit(1);if job.status=="inProgress"{if model.demoMode || (model.liveConnected && model.liveStates[job.id] != nil){RunningCaption(project:model.privacyMode ? L10n.text("비공개"):job.project)}else{Text(L10n.text("마지막 기록 · 작업 중")).font(.caption).foregroundStyle(.secondary)};TimelineView(.periodic(from:.now,by:5)){context in Text(model.activityLabel(job.id,now:context.date)).font(.system(size:10)).foregroundStyle(.secondary)}}else if ["approval","answer"].contains(job.status){Text(model.privacyMode ? job.label:"\(job.project) · \(L10n.text(job.reason ?? job.label))").font(.caption).foregroundStyle(stateColor(job.status)).fixedSize(horizontal:false,vertical:true)}else{Text(model.privacyMode ? job.label:"\(job.project) · \(job.label)").font(.caption).foregroundStyle(.secondary)}
@@ -705,6 +728,13 @@ struct Panel:View {
         }.buttonStyle(.plain).help(L10n.text("Codex에서 대화 열기")).contextMenu{Button(L10n.text("대화 고정")){model.makeCurrent(job.id)};
             if job.status=="unread"{Button(L10n.text("답변 나중에 보기")){model.deferReply(job)}}
             if job.status=="deferred"{Button(L10n.text("미확인 답변으로 다시 표시")){model.restoreReply(job)}};if job.status=="failed"{Button(L10n.text("오류 확인했어요")){model.dismissError(job)}}}
+        if job.status == "failed" {
+            Button(L10n.text("오류 확인했어요")) { model.dismissError(job) }
+                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.borderless)
+                .fixedSize()
+        }
+        }
     }
     var settings:some View {
         VStack(alignment:.leading,spacing:16){

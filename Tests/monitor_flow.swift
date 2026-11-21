@@ -290,6 +290,24 @@ MainActor.assumeIsolated {
     expect(health.needsDetectionCheck && health.confirmedActive==1 && health.fairyStatus=="inProgress","partial uncertainty is disclosed without hiding confirmed activity")
     expect(Panel(model:health).headline.contains(L10n.text("진행 중이에요.")),"confirmed current work keeps its truthful headline")
     print("PASS: historical uncertainty is separated from confirmed current activity")
+    let errors = Monitor()
+    errors.onNotice = { _, _, _ in preconditionFailure("reviewed error was notified again") }
+    var failed = Job(id: "review-error", title: "fixture", project: "fixture", status: "failed", turn: "failed-turn")
+    errors.apply(.success([failed]))
+    errors.dismissError(errors.jobs[0])
+    expect(errors.jobs[0].status == "reviewedError" && errors.attentionJobs.isEmpty, "acknowledgement clears card and attention count")
+    expect(!errors.menuSummary.contains(L10n.text("오류")), "acknowledgement clears error menu badge")
+    errors.apply(.success([failed]))
+    expect(errors.jobs[0].status == "reviewedError", "record refresh cannot restore acknowledged error")
+    errors.notify(failed)
+    let restoredErrors = Monitor()
+    restoredErrors.onNotice = { _, _, _ in }
+    restoredErrors.apply(.success([failed]))
+    expect(restoredErrors.jobs[0].status == "reviewedError", "acknowledgement survives restart")
+    failed.turn = "new-failed-turn"
+    restoredErrors.apply(.success([failed]))
+    expect(restoredErrors.jobs[0].status == "failed", "new turn error still requires review")
+    print("PASS: error acknowledgement clears card/badge, survives refresh/restart, suppresses replay and preserves new errors")
     MotePreferences.store.removePersistentDomain(forName:ProcessInfo.processInfo.environment["MOTE_TEST_SUITE"]!)
     print("PASS: real Monitor lifecycle, approval, question, resume, grouped completion, read, cleanup/undo, defer/restore, parallel work, snooze")
 }
