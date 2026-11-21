@@ -89,3 +89,10 @@ mixedPriority.turns=["t":LiveState.Turn(id:"t",status:"inProgress",started:1)]
 mixedPriority.questionItems=["t/0":["id":"q","count":1]]
 check(mixedPriority.waiting=="approval","approval takes priority over a concurrent async question")
 print("PASS: mixed approval/input waits retain approval priority")
+
+// Removing a preceding item shifts all later item indexes. A stale question
+// must never survive that shift or suppress a subsequent input alert.
+let originalRevision = mixedPriority.revision
+check(!mixedPriority.apply(["type":"patches","baseRevision":originalRevision,"revision":originalRevision+1,"patches":[["op":"replace","path":["hasUnreadTurn"],"value":true],["op":"remove","path":["turnHistory","history","entitiesByKey","t","items",0]]]]),"item removal requires resnapshot")
+check(mixedPriority.unread == nil && mixedPriority.revision == originalRevision,"rejected array batch is atomic")
+print("PASS: structural item edits resnapshot without partially applying state")

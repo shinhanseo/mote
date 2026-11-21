@@ -100,6 +100,29 @@ struct LiveState {
             revision=rev;return true
         }
         guard change["type"] as? String == "patches", change["baseRevision"] as? Int == revision, let patches=change["patches"] as? [[String:Any]] else { return false }
+        // Item and turn metadata use array positions. Insertions, removals and
+        // reordered arrays invalidate those positions, so fetch a fresh snapshot
+        // before applying any part of the patch batch.
+        for patch in patches {
+            guard let path = patch["path"] as? [Any] else { return false }
+            let operation = patch["op"] as? String ?? ""
+            if operation == "move" || operation == "copy" { return false }
+            if path.first as? String == "turns",
+               path.count <= 2 { return false }
+            if path.count == 6,
+               path.first as? String == "turnHistory",
+               path[4] as? String == "items",
+               let key = path[3] as? String, let index = path[5] as? Int {
+                let shiftsMetadata = questionItems.keys.contains { itemKey in
+                    guard itemKey.hasPrefix(key + "/"),
+                          let position = Int(itemKey.split(separator: "/").last ?? "") else { return false }
+                    return position >= index
+                }
+                if operation == "remove" || (operation == "add" && shiftsMetadata) { return false }
+            }
+            if path.count == 8, path[6] as? String == "questions",
+               operation == "add" || operation == "remove" { return false }
+        }
         for patch in patches {
             guard let path=patch["path"] as? [Any],let first=path.first as? String else {continue}
             let op=patch["op"] as? String ?? ""
